@@ -1,3 +1,0 @@
-const userInfo:{
-   const  info:'', 
-}

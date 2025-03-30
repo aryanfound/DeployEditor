@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { GitPullRequest, Key, Users, PenTool, Plus } from 'lucide-react';
 import { ConnectionsModal } from './modals/ConnectionsModal';
 import { ActiveUsersModal } from './modals/ActiveUsersModal';
 import { NewCodespaceModal } from './modals/NewCodespaceModal';
 import { PullRequestModal } from './modals/PullRequestModal';
 import type { User } from '../types';
+import { useChange } from './customhook/spaceinfo';
+import { CodeSpaceInfo } from '../../globaltool';
 
 interface HeaderProps {
   projectName: string;
@@ -23,6 +25,9 @@ export function Header({ projectName, onToggleCanvas }: HeaderProps) {
   const [showNewCodespace, setShowNewCodespace] = useState(false);
   const [showPullRequest, setShowPullRequest] = useState(false);
 
+  // Access global state using the custom hook
+  const { currCodeSpaceName } = useChange();
+
   const handleUserClick = (user: User) => {
     console.log('User clicked:', user);
     // Handle user interaction
@@ -33,14 +38,19 @@ export function Header({ projectName, onToggleCanvas }: HeaderProps) {
     onToggleCanvas();
   };
 
+  useEffect(() => {
+    console.log('Current CodeSpace Name:', currCodeSpaceName);
+  }, [currCodeSpaceName]); // React to changes in currCodeSpaceName
+   // Set the current codespace name when the component mounts
   return (
     <div className="h-14 bg-[#2b2d31] border-b border-[#1e1f22] flex items-center justify-between px-4">
       <div className="flex items-center gap-4">
-        <h2 className="text-white font-medium">{projectName}</h2>
+        {/* Display the current codespace name */}
+        <h2 className="text-white font-medium">{CodeSpaceInfo.currCodeSpaceName || 'Untitled'}</h2>
       </div>
-      
+
       <div className="flex items-center gap-4">
-        <button 
+        <button
           onClick={() => setShowNewCodespace(true)}
           className="px-3 py-1.5 text-sm text-white bg-[#5865f2] rounded hover:bg-[#4752c4] transition-colors flex items-center gap-2"
         >
@@ -48,7 +58,7 @@ export function Header({ projectName, onToggleCanvas }: HeaderProps) {
           New Codespace
         </button>
 
-        <button 
+        <button
           onClick={() => setShowPullRequest(true)}
           className="px-3 py-1.5 text-sm text-white bg-[#5865f2] rounded hover:bg-[#4752c4] transition-colors flex items-center gap-2"
         >
@@ -62,18 +72,18 @@ export function Header({ projectName, onToggleCanvas }: HeaderProps) {
         >
           <Key className="w-5 h-5" />
         </button>
-        
-        <button 
+
+        <button
           onClick={handleToggleCanvas}
           className={`p-2 transition-colors rounded ${
-            showCanvas 
-              ? 'text-white bg-[#404249]' 
+            showCanvas
+              ? 'text-white bg-[#404249]'
               : 'text-gray-400 hover:text-white hover:bg-[#404249]'
           }`}
         >
           <PenTool className="w-5 h-5" />
         </button>
-        
+
         <button
           onClick={() => setShowActiveUsers(true)}
           className="flex -space-x-2 hover:opacity-90 transition-opacity"

@@ -12,6 +12,14 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]
-    }
+    },
+    "strict": true, // Enable strict type checking
+    "jsx": "react-jsx", // Ensure JSX is set for React
+    "module": "ESNext", // Use ESNext for modern module resolution
+    "target": "ESNext", // Use ESNext for modern JavaScript features
+    "moduleResolution": "node", // Ensure Node.js-style module resolution
+    "esModuleInterop": true, // Ensure compatibility with CommonJS modules
+    "skipLibCheck": true, // Skip type checking for libraries
+    "forceConsistentCasingInFileNames": true // Enforce consistent casing
   }
 }

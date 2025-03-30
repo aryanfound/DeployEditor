@@ -76,7 +76,7 @@ router.post('/login', async (req, res) => {
         }
 
         const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '7d' });
-
+        
         res.status(200).json({ message: 'Login successful', token });
     } catch (error) {
         console.error(error);

@@ -3,21 +3,18 @@ const express = require('express');
 const cookieParser = require('cookie-parser'); 
 const app = express();
 const authRouter=require('./routes/auth')
-const createCodeSpace=require('./functions/createcodespace')
+const createCodeSpace=require('./functions/codespace')
 
 const {authMiddleware}=require('./routes/authmiddleware')
 //const updateDatabase=require('./functions/updatamodel')
 
 
 const cors = require('cors');
-
+const codespaceRouter=require('./routes/codeSpaceRouter')
 const PORT = 5001;
+const HOST = '127.0.0.1';
+const {Server} =require('socket.io')
 const url = "mongodb://localhost:27017/Editor";
-
-
-const FileRouter=require('./routes/fileRouter')
-
-
 async function connectServer(){
     await mongoose.connect(url)
    
@@ -28,8 +25,10 @@ connectServer();
 
 
 const http = require('http');
+const server=http.createServer(app);
 const { WebSocketServer } = require('ws');
 const { v4: uuid } = require('uuid');
+const io=new Server(server);
 
 
 // ✅ CORS Configuration
@@ -66,12 +65,13 @@ app.use('/',authMiddleware);
 
 
 
-const server = http.createServer(app);
 
-app.post('/newCodeSpace',createCodeSpace)
+
 app.use('/',authRouter);
-app.use('/auth',authRouter);
 
+
+app.use('/auth',authRouter);
+app.use('/space',codespaceRouter)
 
 
 

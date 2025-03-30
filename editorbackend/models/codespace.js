@@ -4,13 +4,15 @@ const codeSpaceSchema = new mongoose.Schema({
     Name: { type: String, required: true },
     Owners: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
 
-    folders: [{
-        Name: { type: String, required: true },
-        files: [{ 
-            name: { type: String, required: true }, 
-            docId: { type: mongoose.Schema.Types.ObjectId, ref: 'File' } // Reference to FileModel
-        }]
-    }],
+    folder: {
+        folderName: { type: String }, // Single folder
+        files: [
+            {
+                name: { type: String, required: true },
+                docId: { type: mongoose.Schema.Types.ObjectId } // Reference to File model
+            }
+        ]
+    },
 
     accessKey: { type: String, default: '' },
     codespaceId: { type: String, default: '' }

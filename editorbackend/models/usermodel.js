@@ -6,12 +6,14 @@ const userSchema = new mongoose.Schema({
     password: { type: String, required: true },
 
     notifications: { type: [mongoose.Schema.Types.Mixed], default: [] }, // Store notifications
-    files: [{ 
-        name: { type: String, required: true }, 
-        docId: { type: mongoose.Schema.Types.ObjectId, ref: 'File' } // Reference to FileModel
+
+    // Storing references to the user's CodeSpaces
+    codeSpaces: [{ 
+        type: mongoose.Schema.Types.ObjectId, 
+        ref: 'CodeSpace' // Reference to CodeSpace model
     }], 
 
-    connections: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }] // Connections to other users
+    connections: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }] // User connections
 });
 
 // Prevent model overwriting

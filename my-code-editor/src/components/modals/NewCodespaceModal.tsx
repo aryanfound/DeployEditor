@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Modal } from './Modal';
 import { Code, Upload, Key } from 'lucide-react';
-
+import axios from 'axios'
+import { useChange } from '../customhook/spaceinfo';
 interface NewCodespaceModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -11,12 +12,28 @@ export function NewCodespaceModal({ isOpen, onClose }: NewCodespaceModalProps) {
   const [name, setName] = useState('');
   const [logo, setLogo] = useState('');
   const [accessKey, setAccessKey] = useState('');
+  const {change,setChange}=useChange();
+  const handleCreate = async () => {
+    try {
+        const token = localStorage.getItem('token'); // Get auth token from local storage
 
-  const handleCreate = () => {
-    // Handle creating new codespace
-    console.log('Creating codespace:', { name, logo, accessKey });
-    onClose();
-  };
+        const data = JSON.stringify({ name, logo, accessKey });
+
+        const result = await axios.post('http://localhost:5001/space/newCodeSpace', data, {
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}` // Include auth token
+            }
+        });
+
+        console.log('Codespace created:', result.data);
+        setChange(true);
+        onClose();
+    } catch (error) {
+        console.error('Error creating codespace:', error.response?.data || error.message);
+    }
+};
+
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Create New Codespace">
