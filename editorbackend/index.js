@@ -1,84 +1,128 @@
-const mongoose = require('mongoose');
-const express = require('express');
-const cookieParser = require('cookie-parser'); 
+const mongoose = require("mongoose");
+const express = require("express");
+const cookieParser = require("cookie-parser");
+const http = require("http");
+const { Server } = require("socket.io");
+const cors = require("cors");
+const jwt = require("jsonwebtoken");
+const authRouter = require("./routes/auth");
+const getUser = require("./functions/getUser");
+const { authMiddleware } = require("./routes/authmiddleware");
+const codespaceRouter = require("./routes/codeSpaceRouter");
+require("dotenv").config();
+
 const app = express();
-const authRouter=require('./routes/auth')
-const createCodeSpace=require('./functions/codespace')
-
-const {authMiddleware}=require('./routes/authmiddleware')
-//const updateDatabase=require('./functions/updatamodel')
-
-
-const cors = require('cors');
-const codespaceRouter=require('./routes/codeSpaceRouter')
-const PORT = 5001;
-const HOST = '127.0.0.1';
-const {Server} =require('socket.io')
-const url = "mongodb://localhost:27017/Editor";
-async function connectServer(){
-    await mongoose.connect(url)
-   
-}
-connectServer();
-
-
-
-
-const http = require('http');
-const server=http.createServer(app);
-const { WebSocketServer } = require('ws');
-const { v4: uuid } = require('uuid');
-const io=new Server(server);
-
-
-// ✅ CORS Configuration
-const corsOptions = {
-    origin: [ 'http://localhost:5173','http://172.16.0.2:3003','http://10.0.3.114:3003'],
-    methods: ["GET", "POST", "PUT", "DELETE"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-    credentials: true ,
-
-};
-app.use(cors(corsOptions));
-
-// ✅ Log payload size
-app.use((req, res, next) => {
-    console.log(`Payload Size: ${req.headers['content-length']} bytes`);
-    next();
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: ["http://localhost:5173", "http://172.16.0.2:3003", "http://10.0.3.114:3003"],
+    methods: ["GET", "POST"],
+  },
 });
 
-// ✅ Corrected Payload Limit
-app.use(express.json({ limit: "10000mb" }));
-app.use(express.urlencoded({ limit: "10000mb", extended: true }));
+const PORT = 5001;
+const MONGO_URL = "mongodb://localhost:27017/Editor";
+const JWT_SECRET = process.env.JWT_SECRET;
+
+if (!JWT_SECRET) {
+  console.warn("⚠️ Warning: JWT_SECRET is not defined. Ensure you have a .env file with JWT_SECRET.");
+}
+
+const connectServer = async () => {
+  try {
+    await mongoose.connect(MONGO_URL);
+    console.log("✅ Connected to MongoDB");
+  } catch (err) {
+    console.error("❌ MongoDB Connection Error:", err);
+    process.exit(1);
+  }
+};
+connectServer();
+
+const corsOptions = {
+  origin: ["http://localhost:5173", "http://172.16.0.2:3003", "http://10.0.3.114:3003"],
+  methods: ["GET", "POST", "PUT", "DELETE"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true,
+};
+app.use(cors(corsOptions));
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ limit: "10mb", extended: true }));
 app.use(cookieParser());
+app.use('/', authMiddleware);
+app.get("/getusers", getUser);
+app.use("/auth", authRouter);
+app.use("/space", codespaceRouter);
 
+const userFiles = {}; 
 
-// ✅ Express Middleware & Routes
+const authenticateSocket = (socket, next) => {
+  const token = socket.handshake.query.token;
+  if (!token) {
+    console.log("❌ No token provided. Disconnecting...");
+    return next(new Error("Authentication error"));
+  }
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    socket.userId = decoded.userId;
+    next();
+  } catch (err) {
+    console.log("❌ Invalid Token. Disconnecting...");
+    next(new Error("Authentication error"));
+  }
+};
 
+io.use(authenticateSocket);
+io.on("connection", (socket) => {
+  const userId = socket.userId;
+  socket.join(userId);
+  if (!userFiles[userId]) {
+    userFiles[userId] = { files: [], fileContents: {}, codeSpaceInfo: { spaceId: "default", ownerId: userId } };
+  }
+  
+  console.log(`✅ User connected: ${socket.id} (User ID: ${userId})`);
+  socket.emit("updateFiles", (userFiles[userId]));
 
+  socket.on("updateFiles", ({ files, fileContents, codeSpaceInfo }) => {
+    console.log(`🔄 Received updateFiles event from ${userId}`);
+    console.log("Files:", files);
+    console.log("File Contents:", fileContents);
+    console.log("CodeSpace Info:", codeSpaceInfo);
+    
+    try {
+      const parsedCodeSpaceInfo = typeof codeSpaceInfo === "string" ? JSON.parse(codeSpaceInfo) : codeSpaceInfo;
+      if (userFiles[userId]) {
+        userFiles[userId].files = files;
+        userFiles[userId].fileContents = fileContents;
+        userFiles[userId].codeSpaceInfo = parsedCodeSpaceInfo || userFiles[userId].codeSpaceInfo;
+        socket.emit("updateFiles", userFiles[userId]);
+        io.to(userId).emit("updateFiles", userFiles[userId]);
+      }
+    } catch (error) {
+      console.error("❌ Error parsing codeSpaceInfo:", error);
+    }
+  });
 
+  socket.on("addFile", (newFile) => {
+    console.log(`➕ Adding file for ${userId}:`, newFile);
+    if (userFiles[userId]) {
+      userFiles[userId].files.push(newFile);
+      userFiles[userId].fileContents[newFile.id] = newFile.content || "";
+      socket.emit("updateFiles", userFiles[userId]);
+      io.to(userId).emit("updateFiles", userFiles[userId]);
+    }
+  });
 
-app.use('/',authMiddleware);
+  socket.on("leaveRoom", () => {
+    console.log(`🚪 ${userId} left the room`);
+    socket.leave(userId);
+  });
 
+  socket.on("disconnect", () => {
+    console.log(`❌ User disconnected: ${socket.id}`);
+  });
+});
 
-
-
-
-
-
-
-app.use('/',authRouter);
-
-
-app.use('/auth',authRouter);
-app.use('/space',codespaceRouter)
-
-
-
-
-
-
-
-server.listen(PORT,'0.0.0.0', () => {
-    console.log(`Server started on port ${PORT}`);
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`🚀 Server started on port ${PORT}`);
 });

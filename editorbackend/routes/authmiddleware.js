@@ -1,12 +1,12 @@
 const jwt = require('jsonwebtoken');
-
+require("dotenv").config();
 const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret';
 
 const authMiddleware = (req, res, next) => {
     console.log('Middleware triggered:', req.originalUrl);
 
     // Allow unauthenticated access to login and signup routes
-    if (req.originalUrl === '/auth/signup' || req.originalUrl === '/auth/login') {
+    if (req.originalUrl === '/auth/signup' || req.originalUrl === '/auth/login' || req.originalUrl === '/getusers') {
         //console.log('Public route accessed, skipping authentication');
         return next();
     }
@@ -15,7 +15,7 @@ const authMiddleware = (req, res, next) => {
 
     if (!token) {
        // console.log('No token provided');
-        return res.status(401).json({ message: 'Unauthorized' });
+        return res.status(401).json({ message: 'this Unauthorized' });
     }
 
     try {

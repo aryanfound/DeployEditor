@@ -5,6 +5,9 @@ import CodeEditor from './components/Editor';
 import { Canvas } from './components/Canvas';
 import type { Project } from './types';
 import AuthPage from './auth';
+import socket from './socket'; // Import the global socket instance
+import { Terminal } from "./components/teminal";
+
 
 // Mock data
 const mockProjects: Project[] = [
@@ -59,8 +62,17 @@ function App() {
 
   const currentProject = mockProjects.find(p => p.id === activeProject);
 
+  useEffect(() => {
+    // Connect to the socket when the app loads
+    socket.connect();
+
+    return () => {
+      socket.disconnect(); // Cleanup when component unmounts
+    };
+  }, []);
+
   if (!auth) {
-    return <AuthPage setAuth={setAuth}/>;
+    return <AuthPage setAuth={setAuth} />;
   }
 
   return (
@@ -85,6 +97,11 @@ function App() {
           {showCanvas && <Canvas />}
         </div>
       </div>
+      <Terminal 
+        isVisible={showTerminal}
+        onClose={() => setShowTerminal(false)}
+      />
+      <Terminal errors={errors} />
     </div>
   );
 }

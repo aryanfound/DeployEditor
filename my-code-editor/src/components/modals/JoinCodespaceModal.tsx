@@ -1,19 +1,59 @@
-import React, { useState } from 'react';
-import { Modal } from './Modal';
-import { Key } from 'lucide-react';
-
+import React, { useState } from "react";
+import { Modal } from "./Modal";
+import { Key } from "lucide-react";
+import axios from "axios";
+import { useChange } from "../customhook/spaceinfo";
 interface JoinCodespaceModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-export function JoinCodespaceModal({ isOpen, onClose }: JoinCodespaceModalProps) {
-  const [accessKey, setAccessKey] = useState('');
+async function joinspace({accessKey,setchange}): Promise<void> {
+  const token = localStorage.getItem("token");
+  if (!token) {
+    console.error("No token found in localStorage.");
+    return;
+  }
 
-  const handleJoin = () => {
-    // Handle joining codespace with access key
-    console.log('Joining with key:', accessKey);
-    onClose();
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+  };
+
+  const data = {
+    accessKey: accessKey,
+  };
+
+  try {
+    const response = await axios.post(
+      "http://localhost:5001/space/joinCodeSpace",
+      data,
+      { headers }
+    );
+    console.log("Response:", response.data);
+    alert("Successfully joined the codespace!");
+    console.log(response.data);
+
+  } catch (error) {
+    console.error("Error joining codespace:", error);
+    alert("Failed to join the codespace. Please check the access key.");
+  }
+}
+
+export function JoinCodespaceModal({ isOpen, onClose }: JoinCodespaceModalProps) {
+  
+  const {setChange}=useChange()
+  const [accessKey, setAccessKey] = useState("");
+
+  const handleJoin = async () => {
+    if (!accessKey.trim()) {
+      alert("Access key cannot be empty.");
+      return;
+    }
+
+    console.log("Joining with key:", accessKey);
+    await joinspace({accessKey,setChange}); // Call the joinspace function
+    onClose(); // Close the modal after attempting to join
   };
 
   return (
