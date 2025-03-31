@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { GitPullRequest, Key, Users, Terminal as TerminalIcon, Plus } from "lucide-react";
+import { GitPullRequest, Key, Users, Terminal as Terminal2, Plus } from "lucide-react";
 import { ConnectionsModal } from "./modals/ConnectionsModal";
 import { ActiveUsersModal } from "./modals/ActiveUsersModal";
 import { NewCodespaceModal } from "./modals/NewCodespaceModal";
@@ -10,9 +10,10 @@ import { CodeSpaceInfo } from "../../globaltool";
 
 interface HeaderProps {
   projectName: string;
-  onToggleCanvas: () => void;
-  onToggleTerminal: () => void; // Added prop for toggling the terminal
+
+  onToggleTerminal: () => void;
 }
+
 
 const mockUsers: User[] = [
   {
@@ -31,13 +32,13 @@ const mockUsers: User[] = [
   },
 ];
 
-export function Header({ projectName, onToggleCanvas, onToggleTerminal }: HeaderProps) {
+export function Header({ projectName, onToggleTerminal }: HeaderProps) {
   const [showConnections, setShowConnections] = useState(false);
   const [showActiveUsers, setShowActiveUsers] = useState(false);
   const [showCanvas, setShowCanvas] = useState(false);
-  const [showTerminal, setShowTerminal] = useState(false); // State for terminal visibility
   const [showNewCodespace, setShowNewCodespace] = useState(false);
   const [showPullRequest, setShowPullRequest] = useState(false);
+  const [showTerminal, setShowTerminal] = useState(false);
 
   // Access global state using the custom hook
   const { currCodeSpaceName } = useChange();
@@ -51,6 +52,8 @@ export function Header({ projectName, onToggleCanvas, onToggleTerminal }: Header
     setShowCanvas(!showCanvas);
     onToggleCanvas();
   };
+
+
 
   const handleToggleTerminal = () => {
     setShowTerminal(!showTerminal);
@@ -95,17 +98,6 @@ export function Header({ projectName, onToggleCanvas, onToggleTerminal }: Header
         </button>
 
         <button
-          onClick={handleToggleCanvas}
-          className={`p-2 transition-colors rounded ${
-            showCanvas
-              ? "text-white bg-[#404249]"
-              : "text-gray-400 hover:text-white hover:bg-[#404249]"
-          }`}
-        >
-          <Users className="w-5 h-5" />
-        </button>
-
-        <button
           onClick={handleToggleTerminal}
           className={`p-2 transition-colors rounded ${
             showTerminal
@@ -113,8 +105,10 @@ export function Header({ projectName, onToggleCanvas, onToggleTerminal }: Header
               : "text-gray-400 hover:text-white hover:bg-[#404249]"
           }`}
         >
-          <TerminalIcon className="w-5 h-5" />
+          <Terminal2 className="w-5 h-5" />
         </button>
+
+       
 
         <button
           onClick={() => setShowActiveUsers(true)}

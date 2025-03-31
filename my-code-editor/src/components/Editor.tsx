@@ -16,7 +16,7 @@ export default function CodeEditor({ language = "javascript", theme = "vs-dark" 
   const [isAdding, setIsAdding] = useState(false);
   const [activeFileId, setActiveFileId] = useState<string | null>(null);
 
-  const codeSpaceInfo: CodeSpaceInfo = { spaceId: "12345", ownerId: "67890" };
+
 
   useEffect(() => {
     const handleFilesUpdate = ({ files: updatedFiles }: { files: CodeFile[] }) => {
@@ -35,7 +35,7 @@ export default function CodeEditor({ language = "javascript", theme = "vs-dark" 
 
   const emitFilesUpdate = useCallback((updatedFiles: CodeFile[]) => {
     console.log("Emitting updated files to server:", updatedFiles);
-    socket.emit("updateFiles", { files: updatedFiles, codeSpaceInfo: JSON.stringify(codeSpaceInfo) });
+    socket.emit("updateFiles", { files: updatedFiles, codeSpaceInfo: JSON.stringify(CodeSpaceInfo.currCodeSpaceId) });
   }, []);
 
   const handleAddFile = (e: React.KeyboardEvent<HTMLInputElement>) => {

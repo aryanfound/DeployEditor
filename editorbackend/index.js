@@ -9,6 +9,7 @@ const authRouter = require("./routes/auth");
 const getUser = require("./functions/getUser");
 const { authMiddleware } = require("./routes/authmiddleware");
 const codespaceRouter = require("./routes/codeSpaceRouter");
+const updateFile=require('./socket/updateFile')
 require("dotenv").config();
 
 const app = express();
@@ -83,7 +84,7 @@ io.on("connection", (socket) => {
   console.log(`✅ User connected: ${socket.id} (User ID: ${userId})`);
   socket.emit("updateFiles", (userFiles[userId]));
 
-  socket.on("updateFiles", ({ files, fileContents, codeSpaceInfo }) => {
+    socket.on("updateFiles", ({ files, fileContents, codeSpaceInfo }) => {
     console.log(`🔄 Received updateFiles event from ${userId}`);
     console.log("Files:", files);
     console.log("File Contents:", fileContents);
@@ -92,11 +93,7 @@ io.on("connection", (socket) => {
     try {
       const parsedCodeSpaceInfo = typeof codeSpaceInfo === "string" ? JSON.parse(codeSpaceInfo) : codeSpaceInfo;
       if (userFiles[userId]) {
-        userFiles[userId].files = files;
-        userFiles[userId].fileContents = fileContents;
-        userFiles[userId].codeSpaceInfo = parsedCodeSpaceInfo || userFiles[userId].codeSpaceInfo;
-        socket.emit("updateFiles", userFiles[userId]);
-        io.to(userId).emit("updateFiles", userFiles[userId]);
+         updateFile({codeSpaceInfo,files,socket});
       }
     } catch (error) {
       console.error("❌ Error parsing codeSpaceInfo:", error);
@@ -109,7 +106,7 @@ io.on("connection", (socket) => {
       userFiles[userId].files.push(newFile);
       userFiles[userId].fileContents[newFile.id] = newFile.content || "";
       socket.emit("updateFiles", userFiles[userId]);
-      io.to(userId).emit("updateFiles", userFiles[userId]);
+      handle
     }
   });
 
