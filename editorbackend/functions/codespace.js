@@ -72,7 +72,8 @@ async function joinSpace(req,res){
     try {
         const spaceid = req.body.accessKey;
         const userid = req.userid;
-    
+        console.log('this is space id');
+        console.log(spaceid);
         // Ensure spaceid is a valid ObjectId before using it in the update
         if (!mongoose.Types.ObjectId.isValid(spaceid)) {
             console.log("Invalid spaceid:", spaceid);
