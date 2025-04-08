@@ -22,7 +22,7 @@ const io = new Server(server, {
 });
 
 const PORT = 5001;
-const MONGO_URL = "mongodb://localhost:27017/Editor";
+const MONGO_URL = process.env.MONGO_URL || "mongodb://localhost:27017/editorbackend";
 const JWT_SECRET = process.env.JWT_SECRET;
 
 if (!JWT_SECRET) {
