@@ -4,7 +4,7 @@ const usermodel=require('../models/usermodel')
 const mongoose=require('mongoose');
 async function createCodeSpace(req, res) {
     try {
-        const { name,  accessKey } = req.body;
+        const { name, accessKey } = req.body;
 
         if (!name || !accessKey) {
             return res.status(400).json({ error: "Name and email are required" });
@@ -13,19 +13,26 @@ async function createCodeSpace(req, res) {
         // Create new CodeSpace
         const userSpace = new codespace({
             Name: name,
-            Owners: [req.userid], // Should be ObjectId, change it accordingly
+            Admin: [req.userid], 
+            Owners:[req.userid],// Should be ObjectId, change it accordingly
             accessKey: accessKey
         });
 
-        const result=await userSpace.save();
-        const spaceid=result._id;
+        const result = await userSpace.save();
+        
+        // Store _id as a string in codespaceId
+        await codespace.findByIdAndUpdate(result._id, { codespaceId: ((`${result._id.toString()}`)) });
+
+        const spaceid = result._id;
         console.log('user id is');
-        console.log(req.userid)
-       const user= await usermodel.findByIdAndUpdate(
+        console.log(req.userid);
+
+        const user = await usermodel.findByIdAndUpdate(
             req.userid,
-            { $push: { codeSpaces:  spaceid  } }, 
+            { $push: { codeSpaces: spaceid } }, 
             { new: true } // To return updated document (optional)
         );
+
         console.log(user);
 
         return res.status(201).json({ message: "CodeSpace created successfully", codespace: userSpace });
@@ -73,7 +80,7 @@ async function joinSpace(req,res){
         const spaceid = req.body.accessKey;
         const userid = req.userid;
         console.log('this is space id');
-        console.log(spaceid);
+        console.log(spaceid.Type);
         // Ensure spaceid is a valid ObjectId before using it in the update
         if (!mongoose.Types.ObjectId.isValid(spaceid)) {
             console.log("Invalid spaceid:", spaceid);

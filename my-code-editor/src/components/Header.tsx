@@ -57,7 +57,7 @@ export function Header({ projectName, onToggleTerminal }: HeaderProps) {
 
   const handleToggleTerminal = () => {
     setShowTerminal(!showTerminal);
-    onToggleTerminal();
+   
   };
 
   useEffect(() => {

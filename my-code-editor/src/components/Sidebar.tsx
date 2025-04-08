@@ -1,5 +1,21 @@
 import React, { useEffect, useState } from "react";
-import { FolderGit2, Layout, Key, Users, Bell } from "lucide-react";
+import { 
+  FolderGit2, 
+  Layout, 
+  Key, 
+  Users, 
+  Bell,
+  Code,
+  CodepenIcon,
+  Codesandbox,
+  Container,
+  Cpu,
+  Database,
+  FileCode,
+  Github,
+  Globe,
+  Server
+} from "lucide-react";
 import { NotificationsModal } from "./modals/NotificationsModal";
 import { ConnectionsModal } from "./modals/ConnectionsModal";
 import { JoinCodespaceModal } from "./modals/JoinCodespaceModal";
@@ -13,8 +29,27 @@ interface CodeSpace {
   name: string;
   folder: string[];
   _id: string;
-  avatar?: string; // Add avatar field for server images
+  avatar?: string;
 }
+
+const SPACE_ICONS = [
+  Code,
+  CodepenIcon,
+  Codesandbox,
+  Container,
+  Cpu,
+  Database,
+  FileCode,
+  Github,
+  Globe,
+  Layout,
+  Server
+];
+
+const getRandomIcon = () => {
+  const randomIndex = Math.floor(Math.random() * SPACE_ICONS.length);
+  return SPACE_ICONS[randomIndex];
+};
 
 const mockUsers: User[] = [
   {
@@ -43,16 +78,6 @@ const getAvatarColor = (name: string = "Server") => {
   ];
   const hash = name.split("").reduce((acc, char) => char.charCodeAt(0) + acc, 0);
   return colors[hash % colors.length];
-};
-
-const getInitials = (name: string = "S") => {
-  return name
-    .split(" ")
-    .filter(part => part.length > 0)
-    .map(part => part[0])
-    .join("")
-    .toUpperCase()
-    .slice(0, 2) || "S";
 };
 
 async function fetchCodeSpaces(
@@ -84,7 +109,7 @@ async function fetchCodeSpaces(
           name: space.name || "Unnamed Space",
           folder: Array.isArray(space.folder) ? space.folder : [],
           id: space.id || "",
-          avatar: space.avatar || null, // Add avatar field
+          avatar: space.avatar || null,
         }))
       : [];
 
@@ -115,6 +140,7 @@ export function Sidebar({ projects, activeProject, onProjectSelect }: SidebarPro
   const [activeIcon, setActiveIcon] = useState<string | null>(null);
   const [activeSpace, setActiveSpace] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [spaceIcons, setSpaceIcons] = useState<{ [key: string]: React.ElementType }>({});
 
   const { change, setChange, setCurrCodeSpaceId } = useChange();
 
@@ -125,6 +151,17 @@ export function Sidebar({ projects, activeProject, onProjectSelect }: SidebarPro
         .finally(() => setIsLoading(false));
     }
   }, [change, setChange]);
+
+  useEffect(() => {
+    // Generate and store random icons for spaces that don't have avatars
+    const newSpaceIcons = { ...spaceIcons };
+    spaces.forEach(space => {
+      if (!space.avatar && !newSpaceIcons[space._id]) {
+        newSpaceIcons[space._id] = getRandomIcon();
+      }
+    });
+    setSpaceIcons(newSpaceIcons);
+  }, [spaces]);
 
   const handleCodeSpaceSelect = (spaceId: string) => {
     const selectedSpace = spaces.find((space) => space._id === spaceId);
@@ -155,37 +192,7 @@ export function Sidebar({ projects, activeProject, onProjectSelect }: SidebarPro
         }
       `}</style>
 
-      <button
-        onClick={() => handleIconClick("layout")}
-        className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
-          activeIcon === "layout"
-            ? "bg-blue-600 text-white rounded-2xl"
-            : "bg-[#313338] text-gray-300 hover:bg-[#404249] hover:text-white"
-        }`}
-      >
-        <Layout className="w-6 h-6" />
-      </button>
-
-      <div className="w-8 h-px bg-[#2b2d31] my-2" />
-
       <div className="flex-1 overflow-y-auto w-full flex flex-col items-center gap-2">
-        {projects.map((project) => (
-          <button
-            key={project.id}
-            onClick={() => {
-              onProjectSelect(project.id);
-              setActiveIcon(null);
-            }}
-            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
-              activeProject === project.id
-                ? "bg-blue-600 text-white rounded-2xl"
-                : "bg-[#313338] text-gray-300 hover:bg-[#404249] hover:text-white"
-            }`}
-          >
-            <FolderGit2 className="w-6 h-6" />
-          </button>
-        ))}
-
         {isLoading ? (
           <div className="flex justify-center py-4">
             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
@@ -193,6 +200,7 @@ export function Sidebar({ projects, activeProject, onProjectSelect }: SidebarPro
         ) : spaces.length > 0 ? (
           spaces.map((space) => {
             const spaceName = space.name || "Unnamed Space";
+            const SpaceIcon = spaceIcons[space._id];
             return (
               <button
                 key={space._id}
@@ -210,9 +218,11 @@ export function Sidebar({ projects, activeProject, onProjectSelect }: SidebarPro
                     alt={spaceName}
                     className="w-full h-full rounded-full object-cover"
                   />
+                ) : SpaceIcon ? (
+                  <SpaceIcon className="w-6 h-6" />
                 ) : (
                   <div className={`w-8 h-8 rounded-full ${getAvatarColor(spaceName)} flex items-center justify-center text-white font-medium text-xs`}>
-                    {getInitials(spaceName)}
+                    {spaceName.charAt(0).toUpperCase()}
                   </div>
                 )}
               </button>

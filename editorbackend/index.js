@@ -75,50 +75,117 @@ const authenticateSocket = (socket, next) => {
 
 io.use(authenticateSocket);
 io.on("connection", (socket) => {
-  const userId = socket.userId;
-  socket.join(userId);
-  if (!userFiles[userId]) {
-    userFiles[userId] = { files: [], fileContents: {}, codeSpaceInfo: { spaceId: "default", ownerId: userId } };
-  }
-  
-  console.log(`✅ User connected: ${socket.id} (User ID: ${userId})`);
-  socket.emit("updateFiles", (userFiles[userId]));
-
-    socket.on("updateFiles", ({ files, fileContents, codeSpaceInfo }) => {
-    console.log(`🔄 Received updateFiles event from ${userId}`);
-    console.log("Files:", files);
-    console.log("File Contents:", fileContents);
-    console.log("CodeSpace Info:", codeSpaceInfo);
     
-    try {
-      const parsedCodeSpaceInfo = typeof codeSpaceInfo === "string" ? JSON.parse(codeSpaceInfo) : codeSpaceInfo;
-      if (userFiles[userId]) {
-         updateFile({codeSpaceInfo,files,socket});
+    const { token} = socket.handshake.query;
+    console.log(token)
+
+    const decode=jwt.verify(token, JWT_SECRET)
+    console.log(decode)
+    const userId=decode.userId
+    
+    // Join user's personal room and initialize files
+    socket.join(userId);
+    if (!userFiles[userId]) {
+      userFiles[userId] = { 
+        files: [], 
+        fileContents: {}, 
+        codeSpaceInfo: { 
+          spaceId: "default", 
+          ownerId: userId 
+        } 
+      };
+    }
+  
+    // Send initial files to client
+    socket.emit("updateFiles", userFiles[userId]);
+  
+    // Handle file updates
+    socket.on("updateFiles", async ({ files, codeSpaceInfo }) => {
+
+      try {
+        console.log(`🔄 Received files update from ${userId} for space ${codeSpaceInfo}`);
+        
+        // Update local state
+        userFiles[userId].files = Array.isArray(files) ? files : JSON.parse(files);
+        userFiles[userId].codeSpaceInfo.spaceId = codeSpaceInfo;
+  
+        // Update database
+        await updateFile({
+          codeSpaceInfo: codeSpaceInfo,
+          files: userFiles[userId].files,
+          socket: socket
+          ,io:io
+        });
+  
+        // Broadcast to all clients in this codespace
+        socket.to(`codespace_${codeSpaceInfo}`).emit("updateFiles", {
+          files: userFiles[userId].files,
+          codeSpaceInfo: codeSpaceInfo
+        });
+  
+      } catch (err) {
+        console.error("❌ File update error:", err);
+        socket.emit("updateError", {
+          error: "UPDATE_FAILED",
+          message: err.message
+        });
       }
-    } catch (error) {
-      console.error("❌ Error parsing codeSpaceInfo:", error);
-    }
+    });
+  
+    // Handle new file creation
+    socket.on("addFile", async (newFile) => {
+      try {
+        console.log(`➕ ${userId} adding file:`, newFile.name);
+        
+        if (userFiles[userId]) {
+          // Update local state
+          userFiles[userId].files.push(newFile);
+          userFiles[userId].fileContents[newFile.id] = newFile.content || "";
+          
+          // Get current codespace ID
+          const spaceId = userFiles[userId].codeSpaceInfo.spaceId;
+  
+          // Update database
+          await updateFile({
+            codeSpaceInfo: spaceId,
+            files: userFiles[userId].files,
+            socket: socket
+          });
+  
+          // Broadcast update
+          socket.to(`codespace_${spaceId}`).emit("updateFiles", {
+            files: userFiles[userId].files,
+            codeSpaceInfo: spaceId
+          });
+        }
+      } catch (err) {
+        console.error("❌ Add file error:", err);
+        socket.emit("updateError", {
+          error: "ADD_FILE_FAILED",
+          message: err.message
+        });
+      }
+    });
+  
+    // Handle room management
+    socket.on("joinCodeSpace", (spaceId) => {
+      console.log(`🚪 ${userId} joining codespace ${spaceId}`);
+      socket.join(`codespace_${spaceId}`);
+      userFiles[userId].codeSpaceInfo.spaceId = spaceId;
+    });
+  
+    socket.on("leaveCodeSpace", () => {
+      const spaceId = userFiles[userId]?.codeSpaceInfo?.spaceId;
+      if (spaceId) {
+        console.log(`🚪 ${userId} leaving codespace ${spaceId}`);
+        socket.leave(`codespace_${spaceId}`);
+      }
+    });
+  
+    socket.on("disconnect", () => {
+      console.log(`❌ User disconnected: ${userId} (${socket.id})`);
+    });
   });
-
-  socket.on("addFile", (newFile) => {
-    console.log(`➕ Adding file for ${userId}:`, newFile);
-    if (userFiles[userId]) {
-      userFiles[userId].files.push(newFile);
-      userFiles[userId].fileContents[newFile.id] = newFile.content || "";
-      socket.emit("updateFiles", userFiles[userId]);
-      handle
-    }
-  });
-
-  socket.on("leaveRoom", () => {
-    console.log(`🚪 ${userId} left the room`);
-    socket.leave(userId);
-  });
-
-  socket.on("disconnect", () => {
-    console.log(`❌ User disconnected: ${socket.id}`);
-  });
-});
 
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server started on port ${PORT}`);

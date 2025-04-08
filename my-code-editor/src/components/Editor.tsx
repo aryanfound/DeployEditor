@@ -3,6 +3,7 @@ import Editor from "@monaco-editor/react";
 import { File, Plus } from "lucide-react";
 import socket from "../socket";
 import { CodeSpaceInfo } from "../../globaltool";
+import { useChange } from "./customhook/spaceinfo";
 
 interface CodeFile {
   id: string;
@@ -15,11 +16,40 @@ export default function CodeEditor({ language = "javascript", theme = "vs-dark" 
   const [newFileName, setNewFileName] = useState("");
   const [isAdding, setIsAdding] = useState(false);
   const [activeFileId, setActiveFileId] = useState<string | null>(null);
+  const [output, setOutput] = useState<string>("");
 
+  const { change, setChange } = useChange();
+
+  // Load Skulpt for Python execution
+  useEffect(() => {
+    if (!window.hasOwnProperty("Sk")) {
+      const skulptScript = document.createElement("script");
+      skulptScript.src = "https://cdn.jsdelivr.net/npm/skulpt@1.2.0/dist/skulpt.min.js";
+      skulptScript.async = true;
+      document.body.appendChild(skulptScript);
+
+      const skulptStdlib = document.createElement("script");
+      skulptStdlib.src = "https://cdn.jsdelivr.net/npm/skulpt@1.2.0/dist/skulpt-stdlib.js";
+      skulptStdlib.async = true;
+      document.body.appendChild(skulptStdlib);
+    }
+  }, []);
+
+  const handleFilesUpdate = ({ files: updatedFiles }: { files: CodeFile[] }) => {
+    console.log
+    console.log("Received updated files from server:", updatedFiles);
+    setFiles(updatedFiles);
+    if (updatedFiles.length > 0 && !activeFileId) {
+      setActiveFileId(updatedFiles[0].id);
+    }
+  };
+
+  socket.on("filesUpdated", handleFilesUpdate);
 
 
   useEffect(() => {
     const handleFilesUpdate = ({ files: updatedFiles }: { files: CodeFile[] }) => {
+      console.log
       console.log("Received updated files from server:", updatedFiles);
       setFiles(updatedFiles);
       if (updatedFiles.length > 0 && !activeFileId) {
@@ -27,7 +57,7 @@ export default function CodeEditor({ language = "javascript", theme = "vs-dark" 
       }
     };
 
-    socket.on("updateFiles", handleFilesUpdate);
+    
     return () => {
       socket.off("updateFiles", handleFilesUpdate);
     };
@@ -35,7 +65,7 @@ export default function CodeEditor({ language = "javascript", theme = "vs-dark" 
 
   const emitFilesUpdate = useCallback((updatedFiles: CodeFile[]) => {
     console.log("Emitting updated files to server:", updatedFiles);
-    socket.emit("updateFiles", { files: updatedFiles, codeSpaceInfo: JSON.stringify(CodeSpaceInfo.currCodeSpaceId) });
+    socket.emit("updateFiles", { files: updatedFiles, codeSpaceInfo: CodeSpaceInfo.currCodeSpaceId });
   }, []);
 
   const handleAddFile = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -43,7 +73,7 @@ export default function CodeEditor({ language = "javascript", theme = "vs-dark" 
       const newFile: CodeFile = {
         id: `file-${Date.now()}`,
         name: newFileName.trim(),
-        content: `// ${newFileName.trim()}\n// Start coding here...`,
+        content: ``,
       };
       const updatedFiles = [...files, newFile];
       setFiles(updatedFiles);
@@ -71,6 +101,79 @@ export default function CodeEditor({ language = "javascript", theme = "vs-dark" 
     },
     [activeFileId, emitFilesUpdate]
   );
+
+  const getFileLanguage = (fileName: string): string => {
+    const ext = fileName.split('.').pop()?.toLowerCase();
+    switch (ext) {
+      case 'js':
+      case 'jsx':
+        return 'javascript';
+      case 'py':
+        return 'python';
+      case 'cpp':
+      case 'c++':
+        return 'cpp';
+      case 'c':
+        return 'c';
+      default:
+        return language;
+    }
+  };
+
+  const runCode = () => {
+    if (!activeFileId) return;
+    
+    const activeFile = files.find(file => file.id === activeFileId);
+    if (!activeFile) return;
+
+    const lang = getFileLanguage(activeFile.name);
+    const code = activeFile.content;
+
+    if (lang === "javascript") {
+      try {
+        const capturedLogs: string[] = [];
+        const originalConsoleLog = console.log;
+        console.log = (...args) => { capturedLogs.push(args.join(" ")); };
+        new Function(code)();
+        console.log = originalConsoleLog;
+        setOutput(capturedLogs.join("\n") || "Program executed with no output.");
+      } catch (error: any) {
+        setOutput("Runtime Error: " + error.message);
+      }
+    } else if (lang === "python") {
+      try {
+        let capturedLogs: string[] = [];
+        if (window.hasOwnProperty("Sk")) {
+          // @ts-ignore
+          Sk.configure({
+            output: (text: string) => { capturedLogs.push(text); },
+            read: (x: string) => {
+              // @ts-ignore
+              if (Sk.builtinFiles === undefined || Sk.builtinFiles["files"][x] === undefined)
+                throw "File not found: '" + x + "'";
+              // @ts-ignore
+              return Sk.builtinFiles["files"][x];
+            }
+          });
+          // @ts-ignore
+          Sk.misceval.asyncToPromise(function() {
+            // @ts-ignore
+            return Sk.importMainWithBody("<stdin>", false, code);
+          }).then(function () {
+            setOutput(capturedLogs.join("") || "Program executed with no output.");
+          }, function (err: any) {
+            setOutput("Runtime Error: " + err.toString());
+          });
+        } else {
+          setOutput("Skulpt is not loaded. Python execution not supported.");
+        }
+      } catch (error: any) {
+        setOutput("Runtime Error: " + error.message);
+      }
+    } else {
+      setOutput(`Execution not supported for ${lang} files yet.`);
+    }
+  };
 
   const activeFile = files.find((file) => file.id === activeFileId);
 
@@ -118,10 +221,11 @@ export default function CodeEditor({ language = "javascript", theme = "vs-dark" 
           ))}
         </div>
       </div>
-      <div className="flex-1">
+      <div className="flex-1 flex flex-col">
+        
         <Editor
-          height="100vh"
-          language={language}
+          height="60vh"
+          language={activeFile ? getFileLanguage(activeFile.name) : language}
           value={activeFile?.content || "// Select or create a file"}
           theme={theme}
           onChange={handleEditorChange}
@@ -132,6 +236,7 @@ export default function CodeEditor({ language = "javascript", theme = "vs-dark" 
             automaticLayout: true,
           }}
         />
+        
       </div>
     </div>
   );

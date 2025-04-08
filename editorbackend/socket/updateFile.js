@@ -1,69 +1,51 @@
-const codeSpace = require('../models/codespace');
-const mongoose = require('mongoose');
+const CodeSpace = require("../models/codespace");
+const mongoose = require("mongoose");
 
-async function updatedFile({ codeSpaceInfo, files, socket }) {
-    // Debug: Log the incoming ID
-    console.log('Received codeSpaceInfo:', codeSpaceInfo, 'Type:', typeof codeSpaceInfo);
-    
-    // Validate input
-    if (!codeSpaceInfo || !files) {
-        const errorMsg = 'codeSpaceInfo and files are required';
-        console.error(errorMsg);
-        if (socket) socket.emit('files-update-error', { error: errorMsg });
-        throw new Error(errorMsg);
-    }
-
-    // Convert to string if it isn't already
-    const idString = String(codeSpaceInfo).trim();
-    
-    // Validate MongoDB ID format
-    if (!mongoose.isValidObjectId(idString)) {
-        const errorMsg = `Invalid codeSpace ID format: ${idString}`;
-        console.error(errorMsg);
-        if (socket) socket.emit('files-update-error', { error: errorMsg });
-        throw new Error(errorMsg);
-    }
-
+async function updateFile({ codeSpaceInfo, files, io }) {
     try {
-        const result = await codeSpace.findByIdAndUpdate(
-            idString, // Mongoose can handle string IDs
-            {
-                $set: {
+        const result = await CodeSpace.findOneAndUpdate(
+            { codespaceId: codeSpaceInfo },
+            { 
+                $set: { 
                     Files: JSON.stringify(files),
-                    updatedAt: new Date()
-                }
+                    updatedAt: new Date() 
+                } 
             },
             { new: true }
         );
 
         if (!result) {
-            const errorMsg = `CodeSpace not found with ID: ${idString}`;
-            console.error(errorMsg);
-            if (socket) socket.emit('files-update-error', { error: errorMsg });
-            throw new Error(errorMsg);
+            throw new Error(`Codespace ${codeSpaceInfo} not found`);
         }
 
-        console.log('Update successful:', result._id);
-        
-        if (socket) {
-            socket.emit('files-updated', { 
-                success: true,
-                codeSpaceId: result._id,
-                updatedFiles: files 
+        // Log all active room IDs
+        const rooms = io.sockets.adapter.rooms;
+        const activeRooms = [...rooms.keys()];
+        console.log("📌 Active Rooms:", activeRooms);
+
+        // Emit to all owners of the codespace
+        if (result.Owners && io) {
+            result.Owners.forEach((owner) => {
+                const ownerId = owner.toString(); // Ensure it's a string
+
+                if (activeRooms.includes(ownerId)) {
+                    console.log(`✅ Emitting update to owner: ${ownerId}`);
+                    io.to(ownerId).emit("filesUpdated", {
+                        files: files,
+                        codeSpaceId: codeSpaceInfo,
+                        updatedAt: new Date()
+                    });
+                } else {
+                    console.error(`❌ Error: Owner ${ownerId} is not connected to the socket`);
+                }
             });
         }
 
         return result;
     } catch (err) {
-        console.error('Update error:', err.message);
-        if (socket) {
-            socket.emit('files-update-error', { 
-                error: err.message,
-                stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
-            });
-        }
+        console.error("❌ Database update failed:", err);
         throw err;
     }
 }
 
-module.exports = updatedFile;
+module.exports = updateFile;
