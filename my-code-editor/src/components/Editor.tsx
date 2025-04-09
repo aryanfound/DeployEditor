@@ -3,7 +3,7 @@ import Editor from "@monaco-editor/react";
 import { File, Plus, Folder, FolderOpen, ChevronRight, ChevronDown } from "lucide-react";
 import socket from "../socket";
 import { CodeSpaceInfo } from "../../globaltool";
-
+import { useChange } from "./customhook/spaceinfo";
 interface FileItem {
   id: string;
   name: string;
@@ -23,7 +23,11 @@ export default function CodeEditor({ language = "javascript", theme = "vs-dark" 
   const [parentId, setParentId] = useState<string | null>(null);
   const [output, setOutput] = useState<string>("");
   const [folder, setFolder] = useState("");
+  const currspacefolder = CodeSpaceInfo.currspacefolder;
+  const { change, setChange } = useChange(); // Use the custom hook to get context values
   // Socket.IO handlers
+
+  
   useEffect(() => {
     const handleFilesUpdate = ({ files: updatedFiles }: { files: FileItem[] }) => {
       console.log("Received updated files from server:", updatedFiles);
@@ -31,6 +35,7 @@ export default function CodeEditor({ language = "javascript", theme = "vs-dark" 
       if (updatedFiles.length > 0 && !activeFileId) {
         setActiveFileId(updatedFiles[0].id);
       }
+      
       setFolder(CodeSpaceInfo.currspacefolder)
     };
 
@@ -42,6 +47,11 @@ export default function CodeEditor({ language = "javascript", theme = "vs-dark" 
     };
 
   }, [activeFileId]);
+
+
+  useEffect(()=>{
+    console.log('foler is ',CodeSpaceInfo.currspacefolder)
+  },[change])
 
   const emitFilesUpdate = useCallback((updatedFiles: FileItem[]) => {
     console.log("Emitting updated files to server:", updatedFiles);
