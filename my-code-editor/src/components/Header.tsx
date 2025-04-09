@@ -56,8 +56,8 @@ export function Header({ projectName, onToggleTerminal }: HeaderProps) {
 
 
   const handleToggleTerminal = () => {
-    setShowTerminal(!showTerminal); // You can keep this for styling the button
-    onToggleTerminal(); // Add this to notify the parent component
+    setShowTerminal(!showTerminal);
+    onToggleTerminal();
   };
 
   useEffect(() => {

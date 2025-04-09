@@ -1,4 +1,5 @@
 import axios from "axios";
+import { Code } from "lucide-react";
 
 export const CodeSpaceInfo: {
   name: string;
@@ -6,6 +7,7 @@ export const CodeSpaceInfo: {
   currCodeSpaceId: string;
   currspacefolder: string[];
   spaces: { id: string; name: string; owners: string[] }[];
+
 } = {
   name: "",
   currCodeSpaceName: "",
@@ -37,16 +39,18 @@ export const setCodeSpace = async (
       }
     );
 
-    console.log("Space Info Response:", result.data);
+    
 
     // Update CodeSpaceInfo with the response data
     CodeSpaceInfo.currCodeSpaceName = result.data.Name;
     CodeSpaceInfo.currCodeSpaceId = result.data._id;
-    CodeSpaceInfo.currspacefolder = result.data.folder;
+    CodeSpaceInfo.currspacefolder = result.data.Files;
 
     // Update the parent state for current code space name
     setCurrCodeSpaceName(result.data.Name); // This triggers a re-render
-
+    console.log('data is ',result.data); // Log the result data for debugging
+    console.log("CodeSpaceInfo:", CodeSpaceInfo); // Log the updated CodeSpaceInfo
+  
     // Set the change flag to false
     setChange(false);
 

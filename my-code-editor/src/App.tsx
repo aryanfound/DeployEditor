@@ -1,11 +1,13 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { Sidebar } from "./components/Sidebar";
 import { Header } from "./components/Header";
 import CodeEditor from "./components/Editor";
 import { Terminal } from './components/teminal';
+// import { ErrorConsole } from "./components/output";
 import type { Project } from "./types";
 import AuthPage from "./auth";
 
+// Mock data
 const mockProjects: Project[] = [
   {
     id: "1",
@@ -100,78 +102,40 @@ function App() {
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const [auth, setAuth] = useState(false);
   const [errors, setErrors] = useState([]);
-  const [sidebarWidth, setSidebarWidth] = useState(70);
-  const [resizing, setResizing] = useState(false);
 
   const currentProject = mockProjects.find((p) => p.id === activeProject);
-
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (resizing) {
-        const newWidth = Math.min(Math.max(e.clientX, 180), 500);
-        setSidebarWidth(newWidth);
-      }
-    };
-
-    const handleMouseUp = () => {
-      setResizing(false);
-    };
-
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
-
-    return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [resizing]);
 
   if (!auth) {
     return <AuthPage setAuth={setAuth} />;
   }
 
   return (
-    <div className="flex flex-col h-screen bg-[#313338]">
-      <div className="flex flex-1 overflow-hidden">
-        <div className="relative" style={{ width: `${sidebarWidth}px` }}>
-          <div className="h-full w-full border-r border-gray-700">
-            <Sidebar
-              projects={mockProjects}
-              activeProject={activeProject}
-              onProjectSelect={setActiveProject}
-            />
-          </div>
-          <div
-            className="absolute top-0 right-0 w-1 hover:w-2 transition-all cursor-ew-resize bg-gray-600"
-            onMouseDown={() => setResizing(true)}
-          />
-        </div>
-
-        <div className="flex-1 flex flex-col overflow-hidden">
+    <div className="flex h-screen bg-[#313338] flex-col">
+      <div className="flex flex-1">
+        <Sidebar
+          projects={mockProjects}
+          activeProject={activeProject}
+          onProjectSelect={setActiveProject}
+        />
+        <div className="flex-1 flex flex-col">
           <Header
             projectName={currentProject?.name || ""}
             onToggleTerminal={() => setShowTerminal(!showTerminal)}
           />
-
-          <div className="flex-1 overflow-hidden">
+          <div className="flex-1 flex">
             <CodeEditor
               project={currentProject}
               activeFile={activeFile}
               onFileSelect={setActiveFile}
             />
           </div>
-
-          {showTerminal && (
-            <div className="h-[250px] bg-black text-white border-t border-gray-700 overflow-hidden">
-              <Terminal
-                isVisible={showTerminal}
-                onClose={() => setShowTerminal(false)}
-                errors={errors}
-              />
-            </div>
-          )}
         </div>
       </div>
+      <Terminal 
+        isVisible={showTerminal}
+        onClose={() => setShowTerminal(false)}
+      />
+      <Terminal errors={errors} />
     </div>
   );
 }
