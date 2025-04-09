@@ -1,6 +1,6 @@
 import axios from "axios";
 import { Code } from "lucide-react";
-
+import { useChange } from "./src/components/customhook/spaceinfo"; // Import the custom hook for context
 export const CodeSpaceInfo: {
   name: string;
   currCodeSpaceName: string;
@@ -20,7 +20,8 @@ export const currCodeSpaceName = CodeSpaceInfo.currCodeSpaceName; // Export curr
 
 export const setCodeSpace = async (
   setChange: (value: boolean) => void,
-  setCurrCodeSpaceName: (name: string) => void
+  setCurrCodeSpaceName: (name: string) => void,
+ 
 ): Promise<any> => {
   try {
     const token = localStorage.getItem("token"); // Get auth token from local storage
@@ -45,7 +46,8 @@ export const setCodeSpace = async (
     CodeSpaceInfo.currCodeSpaceName = result.data.Name;
     CodeSpaceInfo.currCodeSpaceId = result.data._id;
     CodeSpaceInfo.currspacefolder = result.data.Files;
-
+   
+  // Update the current space folder in the context
     // Update the parent state for current code space name
     setCurrCodeSpaceName(result.data.Name); // This triggers a re-render
     console.log('data is ',result.data); // Log the result data for debugging

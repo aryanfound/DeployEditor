@@ -141,7 +141,7 @@ export function Sidebar({ projects, activeProject, onProjectSelect }: SidebarPro
   const [activeSpace, setActiveSpace] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [spaceIcons, setSpaceIcons] = useState<{ [key: string]: React.ElementType }>({});
-
+  const {currspacefolder,setCurrspacefolder}=useChange()//passing prop to change folders as per the current codespace
   const { change, setChange, setCurrCodeSpaceId } = useChange();
 
   useEffect(() => {
@@ -170,6 +170,7 @@ export function Sidebar({ projects, activeProject, onProjectSelect }: SidebarPro
       setActiveSpace(spaceId);
       CodeSpaceInfo.currCodeSpaceId = spaceId;
       setCodeSpace(setChange, setCurrCodeSpaceName);
+      setChange(true)
     }
   };
 
