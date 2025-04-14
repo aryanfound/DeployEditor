@@ -12,7 +12,7 @@ const userSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId, 
         ref: 'CodeSpace' // Reference to CodeSpace model
     }], 
-
+    
     connections: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }] // User connections
 });
 

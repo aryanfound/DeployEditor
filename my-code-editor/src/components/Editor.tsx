@@ -1,413 +1,566 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Editor from "@monaco-editor/react";
-import { File, Plus, Folder, FolderOpen, ChevronRight, ChevronDown } from "lucide-react";
-import socket from "../socket";
+import * as monaco from "monaco-editor";
+import { MonacoBinding } from "y-monaco"; 
+import * as Y from "yjs";
+import { WebsocketProvider } from 'y-websocket';
+import { v4 as uuidv4 } from "uuid";
 import { CodeSpaceInfo } from "../../globaltool";
-import { useChange } from "./customhook/spaceinfo";
-interface FileItem {
-  id: string;
-  name: string;
-  type: 'file' | 'folder';
-  content?: string;
-  children?: FileItem[];
-  isOpen?: boolean;
-}
+import {useChange} from "../components/customhook/spaceinfo";
+import create_YSocket from "./yjs";
+import {
+  File,
+  Folder,
+  FolderOpen,
+  ChevronDown,
+  ChevronRight,
+  Plus,
+  Trash2,
+  Users,
+  Save
+} from "lucide-react";
 
-export default function CodeEditor({ language = "javascript", theme = "vs-dark" }) {
-  const [files, setFiles] = useState<FileItem[]>([]);
-  const [newFileName, setNewFileName] = useState("");
-  const [newFolderName, setNewFolderName] = useState("");
-  const [isAddingFile, setIsAddingFile] = useState(false);
-  const [isAddingFolder, setIsAddingFolder] = useState(false);
-  const [activeFileId, setActiveFileId] = useState<string | null>(null);
-  const [parentId, setParentId] = useState<string | null>(null);
-  const [output, setOutput] = useState<string>("");
-  const [folder, setFolder] = useState("");
-  const currspacefolder = CodeSpaceInfo.currspacefolder;
-  const { change, setChange } = useChange(); // Use the custom hook to get context values
-  // Socket.IO handlers
+let ydoc = new Y.Doc(); // Export for posting function
+let yfileMap = ydoc.getMap("fileMap");
+let yrootItems = ydoc.getArray("rootItems");
+let yprovider = create_YSocket(ydoc); // Create a single provider instance
 
-  
-  useEffect(() => {
-    const handleFilesUpdate = ({ files: updatedFiles }: { files: FileItem[] }) => {
-      console.log("Received updated files from server:", updatedFiles);
-      setFiles(updatedFiles);
-      if (updatedFiles.length > 0 && !activeFileId) {
-        setActiveFileId(updatedFiles[0].id);
-      }
-      
-      setFolder(CodeSpaceInfo.currspacefolder)
+export default function CollaborativeEditor({ projectId }) {
+  const [files, setFiles] = useState(new Map());
+  const [newItemName, setNewItemName] = useState("");
+  const [isAdding, setIsAdding] = useState(false);
+  const [activeFileId, setActiveFileId] = useState(null);
+  const [parentId, setParentId] = useState(null);
+  const [newItemType, setNewItemType] = useState("file");
+  const [userCount, setUserCount] = useState(1);
+  const editorRef = useRef(null);
+  const bindingRef = useRef(null);
+  const modelsRef = useRef(new Map());
+  const { change } = useChange();
+
+  const token = localStorage.getItem("token");
+
+  const handleAwarenessChange = () => {
+    setUserCount(yprovider.awareness.getStates().size);
+  };
+
+  const reconnectYjs = () => {
+    // Clean up old connections
+    if (yprovider) yprovider.destroy();
+    if (ydoc) ydoc.destroy();
+
+    // Reinitialize Yjs document and structures
+    ydoc = new Y.Doc();
+    yfileMap = ydoc.getMap("fileMap");
+    yrootItems = ydoc.getArray("rootItems");
+
+    // Create new provider (socket connection)
+    yprovider = create_YSocket(ydoc);
+
+    // Set up awareness or listeners
+    yprovider.awareness.on("change", handleAwarenessChange);
+
+    // Observe changes in Yjs documents
+    const observer = () => {
+      const fileMap = new Map();
+      yrootItems.forEach((id) => {
+        const yitem = yfileMap.get(id);
+        if (yitem) {
+          fileMap.set(id, convertYItemToJS(yitem));
+        }
+      });
+      setFiles(fileMap);
     };
 
-    socket.on("filesUpdated", handleFilesUpdate);
-    console.log('hello')
-    console.log(CodeSpaceInfo);
+    yfileMap.observeDeep(observer);
+    yrootItems.observe(observer);
+
+    // Call observer initially to populate files
+    observer();
+
+    // Set initial awareness state
+    yprovider.awareness.setLocalState({
+      user: token || "anonymous",
+      color: `#${Math.floor(Math.random() * 16777215).toString(16)}`,
+    });
+
+    // Clean up on unmount
     return () => {
-      socket.off("filesUpdated", handleFilesUpdate);
+      yfileMap.unobserveDeep(observer);
+      yrootItems.unobserve(observer);
+      yprovider.awareness.off("change", handleAwarenessChange);
+      yprovider.awareness.setLocalState(null);
+      modelsRef.current.forEach((model) => model.dispose());
+      modelsRef.current.clear();
+      if (bindingRef.current) {
+        bindingRef.current.destroy();
+        bindingRef.current = null;
+      }
     };
+  };
 
+  useEffect(() => {
+    reconnectYjs();
+  }, [change]);
+
+  const setupEditorBinding = (fileId) => {
+    if (!editorRef.current || !fileId) return;
+
+    const yfile = yfileMap.get(fileId);
+    if (!yfile || yfile.get("type") !== "file") return;
+
+    if (bindingRef.current) {
+      bindingRef.current.destroy();
+      bindingRef.current = null;
+    }
+
+    let model;
+    if (modelsRef.current.has(fileId)) {
+      model = modelsRef.current.get(fileId);
+    } else {
+      const ytext = yfile.get("content");
+      const modelUri = monaco.Uri.parse(`file:///${fileId}/${yfile.get("name")}`);
+      model = monaco.editor.createModel(
+        ytext.toString(),
+        undefined,
+        modelUri
+      );
+      modelsRef.current.set(fileId, model);
+    }
+
+    editorRef.current.setModel(model);
+
+    const ytext = yfile.get("content");
+    bindingRef.current = new MonacoBinding(
+      ytext,
+      model,
+      new Set([editorRef.current]),
+      yprovider.awareness
+    );
+
+    yprovider.awareness.setLocalState({
+      ...yprovider.awareness.getLocalState(),
+      editing: fileId,
+      user: token || "anonymous",
+    });
+  };
+
+  useEffect(() => {
+    if (activeFileId) {
+      setupEditorBinding(activeFileId);
+    }
+    return () => {
+      if (bindingRef.current) {
+        bindingRef.current.destroy();
+        bindingRef.current = null;
+      }
+    };
   }, [activeFileId]);
 
-
-  useEffect(()=>{
-    console.log('foler is ',CodeSpaceInfo.currspacefolder)
-  },[change])
-
-  const emitFilesUpdate = useCallback((updatedFiles: FileItem[]) => {
-    console.log("Emitting updated files to server:", updatedFiles);
-    socket.emit("updateFiles", { 
-      files: updatedFiles, 
-      codeSpaceInfo: CodeSpaceInfo.currCodeSpaceId 
-    });
-  }, []);
-
-  // Update file content in the structure
-  const updateFileContent = useCallback((id: string, content: string) => {
-    setFiles(prev => {
-      const updated = updateFileStructure(prev, id, file => ({
-        ...file,
-        content: content
-      }));
-      emitFilesUpdate(updated);
-      return updated;
-    });
-  }, [emitFilesUpdate]);
-
-  // Toggle folder open/closed state
-  const toggleFolder = (id: string) => {
-    setFiles(prev => 
-      updateFileStructure(prev, id, file => ({
-        ...file,
-        isOpen: !file.isOpen
-      }))
-    );
-  };
-
-  // Helper function to recursively update file structure
-  const updateFileStructure = (
-    files: FileItem[], 
-    id: string, 
-    updateFn: (file: FileItem) => FileItem
-  ): FileItem[] => {
-    return files.map(file => {
-      if (file.id === id) {
-        return updateFn(file);
-      }
-      if (file.children) {
-        return {
-          ...file,
-          children: updateFileStructure(file.children, id, updateFn)
-        };
-      }
-      return file;
-    });
-  };
-
-  // Add new file or folder
-  const handleAddItem = (e: React.KeyboardEvent<HTMLInputElement>, type: 'file' | 'folder') => {
-    const name = type === 'file' ? newFileName : newFolderName;
-    if (e.key === "Enter" && name.trim()) {
-      const newItem: FileItem = {
-        id: `${type}-${Date.now()}`,
-        name: name.trim(),
-        type,
-        ...(type === 'file' ? { content: '' } : { children: [], isOpen: true })
-      };
-
-      setFiles(prevFiles => {
-        let updatedFiles;
-        if (!parentId) {
-          updatedFiles = [...prevFiles, newItem];
-        } else {
-          updatedFiles = updateFileStructure(prevFiles, parentId, folder => ({
-            ...folder,
-            children: [...(folder.children || []), newItem]
-          }));
-        }
-        emitFilesUpdate(updatedFiles);
-        return updatedFiles;
-      });
-
-      if (type === 'file') {
-        setNewFileName("");
-        setActiveFileId(newItem.id);
+  const convertYItemToJS = (yitem) => {
+    if (!yitem) return null;
+    
+    const item = {};
+    yitem.forEach((value, key) => {
+      if (value instanceof Y.Array) {
+        item[key] = value.toArray();
+      } else if (value instanceof Y.Text) {
+        item[key] = value.toString();
       } else {
-        setNewFolderName("");
+        item[key] = value;
       }
-      setIsAddingFile(false);
-      setIsAddingFolder(false);
+    });
+    return item;
+  };
+
+  const getChildItems = (parentId) => {
+    const childItems = new Map();
+    const parent = yfileMap.get(parentId);
+    if (!parent || !parent.get("children")) return childItems;
+
+    parent.get("children").forEach(childId => {
+      const child = yfileMap.get(childId);
+      if (child) {
+        childItems.set(childId, convertYItemToJS(child));
+      }
+    });
+    return childItems;
+  };
+
+  const handleAddItem = (e) => {
+    if (e.key === "Enter" && newItemName.trim()) {
+      const newId = uuidv4();
+      const yitem = new Y.Map();
+      
+      yitem.set("id", newId);
+      yitem.set("name", newItemName.trim());
+      yitem.set("type", newItemType);
+      yitem.set("parentId", parentId);
+      
+      if (newItemType === "file") {
+        const ytext = new Y.Text();
+        yitem.set("content", ytext);
+        
+        const modelUri = monaco.Uri.parse(`file:///${newId}/${newItemName.trim()}`);
+        const model = monaco.editor.createModel(
+          ytext.toString(),
+          getLanguageFromFilename(newItemName.trim()),
+          modelUri
+        );
+        modelsRef.current.set(newId, model);
+      } else {
+        yitem.set("children", new Y.Array());
+        yitem.set("isOpen", true);
+      }
+
+      yfileMap.set(newId, yitem);
+      
+      if (parentId) {
+        const parent = yfileMap.get(parentId);
+        if (parent) {
+          parent.get("children").push([newId]);
+        }
+      } else {
+        yrootItems.push([newId]);
+      }
+
+      setNewItemName("");
+      setIsAdding(false);
       setParentId(null);
-    } else if (e.key === "Escape") {
-      setNewFileName("");
-      setNewFolderName("");
-      setIsAddingFile(false);
-      setIsAddingFolder(false);
+      
+      if (newItemType === "file") {
+        setActiveFileId(newId);
+      }
+    }
+
+    if (e.key === "Escape") {
+      setNewItemName("");
+      setIsAdding(false);
       setParentId(null);
     }
   };
 
-  // Handle editor content changes
-  const handleEditorChange = (value: string | undefined, fileId: string) => {
-    if (value === undefined || !fileId) return;
-    updateFileContent(fileId, value);
+  const getLanguageFromFilename = (filename) => {
+    const ext = filename.split('.').pop().toLowerCase();
+    const langMap = {
+      'js': 'javascript',
+      'jsx': 'javascript',
+      'ts': 'typescript',
+      'tsx': 'typescript',
+      'html': 'html',
+      'css': 'css',
+      'json': 'json',
+      'py': 'python',
+      'md': 'markdown',
+      'java': 'java',
+      'cpp': 'cpp',
+    };
+    return langMap[ext] || undefined;
   };
 
-  // Run code execution
-  const runCode = () => {
-    if (!activeFileId) return;
+  const toggleFolder = (folderId) => {
+    const yfolder = yfileMap.get(folderId);
+    if (yfolder) {
+      yfolder.set("isOpen", !yfolder.get("isOpen"));
+    }
+  };
+
+  const deleteItem = (itemId) => {
+    const yitem = yfileMap.get(itemId);
+    if (!yitem) return;
+
+    const parentId = yitem.get("parentId");
     
-    const activeFile = findActiveFile(files, activeFileId);
-    if (!activeFile) return;
-
-    const lang = getFileLanguage(activeFile.name);
-    const code = activeFile.content || '';
-
-    if (lang === "javascript") {
-      try {
-        const capturedLogs: string[] = [];
-        const originalConsoleLog = console.log;
-        console.log = (...args) => { capturedLogs.push(args.join(" ")); };
-        new Function(code)();
-        console.log = originalConsoleLog;
-        setOutput(capturedLogs.join("\n") || "Program executed with no output.");
-      } catch (error: any) {
-        setOutput("Runtime Error: " + error.message);
-      }
-    } else if (lang === "python") {
-      try {
-        let capturedLogs: string[] = [];
-        if (window.hasOwnProperty("Sk")) {
-          // @ts-ignore
-          Sk.configure({
-            output: (text: string) => { capturedLogs.push(text); },
-            read: (x: string) => {
-              // @ts-ignore
-              if (Sk.builtinFiles === undefined || Sk.builtinFiles["files"][x] === undefined)
-                throw "File not found: '" + x + "'";
-              // @ts-ignore
-              return Sk.builtinFiles["files"][x];
-            }
-          });
-          // @ts-ignore
-          Sk.misceval.asyncToPromise(function() {
-            // @ts-ignore
-            return Sk.importMainWithBody("<stdin>", false, code);
-          }).then(function () {
-            setOutput(capturedLogs.join("") || "Program executed with no output.");
-          }, function (err: any) {
-            setOutput("Runtime Error: " + err.toString());
-          });
-        } else {
-          setOutput("Skulpt is not loaded. Python execution not supported.");
+    if (parentId) {
+      const parent = yfileMap.get(parentId);
+      if (parent) {
+        const children = parent.get("children");
+        const index = children.toArray().indexOf(itemId);
+        if (index !== -1) {
+          children.delete(index, 1);
         }
-      } catch (error: any) {
-        setOutput("Runtime Error: " + error.message);
       }
     } else {
-      setOutput(`Execution not supported for ${lang} files yet.`);
+      const index = yrootItems.toArray().indexOf(itemId);
+      if (index !== -1) {
+        yrootItems.delete(index, 1);
+      }
+    }
+
+    if (yitem.get("type") === "folder") {
+      yitem.get("children").forEach(childId => {
+        deleteItem(childId);
+      });
+    }
+
+    yfileMap.delete(itemId);
+
+    if (modelsRef.current.has(itemId)) {
+      modelsRef.current.get(itemId).dispose();
+      modelsRef.current.delete(itemId);
+    }
+
+    if (activeFileId === itemId && bindingRef.current) {
+      bindingRef.current.destroy();
+      bindingRef.current = null;
+    }
+
+    if (activeFileId === itemId) {
+      setActiveFileId(null);
     }
   };
 
-  // Render file tree recursively
-  const renderFileTree = (items: FileItem[], depth = 0) => {
-    return items.map(item => {
-      if (item.type === 'folder') {
-        return (
-          <div key={item.id} className="pl-2">
-            <div 
-              className={`flex items-center py-1 px-2 hover:bg-[#2A2D2E] cursor-pointer ${depth === 0 ? 'pl-0' : ''}`}
-              onClick={() => toggleFolder(item.id)}
-            >
-              <span className="flex items-center">
-                {item.isOpen ? (
-                  <ChevronDown className="w-4 h-4 mr-1 text-[#BBBBBB]" />
-                ) : (
-                  <ChevronRight className="w-4 h-4 mr-1 text-[#BBBBBB]" />
-                )}
-                {item.isOpen ? (
-                  <FolderOpen className="w-4 h-4 mr-2 text-[#E2C08D]" />
-                ) : (
-                  <Folder className="w-4 h-4 mr-2 text-[#E2C08D]" />
-                )}
-              </span>
-              <span className="text-sm text-[#CCCCCC]">{item.name}</span>
-              <button 
-                className="ml-auto p-1 text-[#BBBBBB] hover:text-white"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setParentId(item.id);
-                  setIsAddingFile(true);
-                }}
-                title="Add File"
+  const handleEditorMount = (editor) => {
+    editorRef.current = editor;
+    
+    if (activeFileId) {
+      setupEditorBinding(activeFileId);
+    }
+  };
+
+  useEffect(() => {
+    if (!activeFileId) return;
+    
+    if (editorRef.current) {
+      setupEditorBinding(activeFileId);
+    }
+
+    return () => {
+      if (bindingRef.current) {
+        bindingRef.current.destroy();
+        bindingRef.current = null;
+      }
+    };
+  }, [activeFileId]);
+
+  useEffect(() => {
+    reconnectYjs();
+  }, [projectId]);
+
+  const renderFileTree = (items, depth = 0) => {
+    return Array.from(items)
+      .filter(([id, item]) => item !== null)
+      .map(([id, item]) => {
+        if (!item?.type) return null;
+
+        const paddingLeft = `${12 + depth * 12}px`;
+        
+        if (item.type === "folder") {
+          return (
+            <div key={id}>
+              <div
+                className="flex items-center py-1 px-2 hover:bg-[#2A2D2E] rounded cursor-pointer text-[#CCCCCC] text-sm group"
+                style={{ paddingLeft }}
+                onClick={() => toggleFolder(id)}
               >
-                <Plus className="w-3 h-3" />
-              </button>
-              <button 
-                className="p-1 text-[#BBBBBB] hover:text-white"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setParentId(item.id);
-                  setIsAddingFolder(true);
-                }}
-                title="Add Folder"
-              >
-                <Folder className="w-3 h-3" />
-              </button>
-            </div>
-            {item.isOpen && item.children && (
-              <div className="pl-4">
-                {renderFileTree(item.children, depth + 1)}
-                {(isAddingFile || isAddingFolder) && parentId === item.id && (
-                  <input
-                    type="text"
-                    autoFocus
-                    className="bg-[#3C3C3C] text-white text-xs p-1 rounded w-full mt-1"
-                    placeholder={isAddingFile ? "filename.js" : "folder name"}
-                    value={isAddingFile ? newFileName : newFolderName}
-                    onChange={(e) => 
-                      isAddingFile 
-                        ? setNewFileName(e.target.value) 
-                        : setNewFolderName(e.target.value)
-                    }
-                    onKeyDown={(e) => handleAddItem(e, isAddingFile ? 'file' : 'folder')}
-                    onBlur={() => {
-                      setNewFileName("");
-                      setNewFolderName("");
-                      setIsAddingFile(false);
-                      setIsAddingFolder(false);
-                      setParentId(null);
+                <span className="w-4 mr-1 flex items-center">
+                  {item.isOpen ? 
+                    <ChevronDown className="w-[16px] h-[16px] opacity-80" /> : 
+                    <ChevronRight className="w-[16px] h-[16px] opacity-80" />}
+                </span>
+                {item.isOpen ? 
+                  <FolderOpen className="w-[18px] h-[18px] text-[#73C991] mr-2 opacity-90" /> :
+                  <Folder className="w-[18px] h-[18px] text-[#73C991] mr-2 opacity-90" />}
+                <span className="truncate">{item.name}</span>
+                <div className="ml-auto hidden group-hover:flex items-center space-x-1">
+                  <button 
+                    className="p-1 text-[#BBBBBB] hover:text-white"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setParentId(id);
+                      setNewItemType("file");
+                      setIsAdding(true);
                     }}
-                  />
-                )}
+                    title="Add File"
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
+                  <button 
+                    className="p-1 text-[#BBBBBB] hover:text-white"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setParentId(id);
+                      setNewItemType("folder");
+                      setIsAdding(true);
+                    }}
+                    title="Add Folder"
+                  >
+                    <Folder className="w-3 h-3" />
+                  </button>
+                  <button 
+                    className="p-1 text-[#BBBBBB] hover:text-white"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteItem(id);
+                    }}
+                    title="Delete"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
               </div>
-            )}
-          </div>
-        );
-      } else {
-        return (
-          <div
-            key={item.id}
-            className={`flex items-center py-1 px-2 hover:bg-[#2A2D2E] cursor-pointer ${depth === 0 ? 'pl-0' : 'pl-6'}`}
-            onClick={() => setActiveFileId(item.id)}
-          >
-            <File className="w-4 h-4 mr-2 text-[#519ABA]" />
-            <span className="text-sm text-[#CCCCCC]">{item.name}</span>
-          </div>
-        );
-      }
-    });
-  };
+              
+              {item.isOpen && (
+                <div className="pl-4">
+                  {isAdding && parentId === id && (
+                    <div className="ml-6 my-1">
+                      <input
+                        type="text"
+                        autoFocus
+                        className="bg-[#3C3C3C] text-white text-xs p-1 rounded w-full"
+                        placeholder={`New ${newItemType} name`}
+                        value={newItemName}
+                        onChange={(e) => setNewItemName(e.target.value)}
+                        onKeyDown={handleAddItem}
+                        onBlur={() => {
+                          setNewItemName("");
+                          setIsAdding(false);
+                          setParentId(null);
+                        }}
+                      />
+                    </div>
+                  )}
+                  {renderFileTree(getChildItems(id), depth + 1)}
+                </div>
+              )}
+            </div>
+          );
+        } else {
+          const editors = Array.from(yprovider.awareness.getStates().entries())
+            .filter(([_, state]) => state?.editing === id)
+            .map(([_, state]) => state?.user);
 
-  // Find active file in the structure
-  const findActiveFile = (items: FileItem[], id: string | null): FileItem | null => {
-    if (!id) return null;
-    for (const item of items) {
-      if (item.id === id) return item;
-      if (item.children) {
-        const found = findActiveFile(item.children, id);
-        if (found) return found;
-      }
-    }
-    return null;
-  };
+          const isBeingEditedByOthers =
+            editors.length > 0 &&
+            !editors.includes(yprovider.awareness.clientID);
 
-  const activeFile = findActiveFile(files, activeFileId);
-
-  // Get language based on file extension
-  const getFileLanguage = (fileName: string): string => {
-    const ext = fileName.split('.').pop()?.toLowerCase();
-    switch (ext) {
-      case 'js': case 'jsx': return 'javascript';
-      case 'ts': case 'tsx': return 'typescript';
-      case 'py': return 'python';
-      case 'cpp': case 'c++': return 'cpp';
-      case 'c': return 'c';
-      case 'html': return 'html';
-      case 'css': return 'css';
-      case 'json': return 'json';
-      default: return language;
-    }
+          return (
+            <div
+              key={id}
+              className={`flex items-center py-1 px-2 hover:bg-[#2A2D2E] rounded text-[#CCCCCC] cursor-pointer text-sm group ${
+                activeFileId === id ? "bg-[#37373D]" : ""
+              }`}
+              style={{ paddingLeft }}
+              onClick={() => setActiveFileId(id)}
+            >
+              <File
+                className={`w-[18px] h-[18px] ${
+                  isBeingEditedByOthers
+                    ? "text-[#F9A825]"
+                    : "text-[#519ABA]"
+                } mr-2 opacity-90`}
+              />
+              <span className="truncate">{item.name}</span>
+              {editors.map((user, index) => (
+                <span
+                  key={index}
+                  className="ml-2 text-xs text-[#F9A825]"
+                  title={`Editing: ${user}`}
+                >
+                  {user}
+                </span>
+              ))}
+              <div className="ml-auto hidden group-hover:flex">
+                <button 
+                  className="p-1 text-[#BBBBBB] hover:text-white"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteItem(id);
+                  }}
+                  title="Delete"
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              </div>
+            </div>
+          );
+        }
+      });
   };
 
   return (
-    <div className="flex h-full w-full bg-[#1E1E1E]">
+    <div className="flex h-screen w-full bg-[#1E1E1E]">
       <div className="w-64 bg-[#252526] border-r border-[#1C1C1C] flex flex-col">
         <div className="p-3 border-b border-[#1C1C1C] flex items-center justify-between">
-          <span className="text-[#BBBBBB] text-xs font-medium">FILES</span>
-          <div className="flex">
-            <button
-              onClick={() => {
-                setParentId(null);
-                setIsAddingFile(true);
-              }}
-              className="p-1 text-[#BBBBBB] hover:text-white mr-1"
-              title="New File"
-            >
-              <Plus className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => {
-                setParentId(null);
-                setIsAddingFolder(true);
-              }}
-              className="p-1 text-[#BBBBBB] hover:text-white"
-              title="New Folder"
-            >
-              <Folder className="w-4 h-4" />
-            </button>
-            <button
-              onClick={runCode}
-              className="p-1 text-[#BBBBBB] hover:text-white ml-1"
-              title="Run Code"
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <path d="M5 3l14 9-14 9V3z" />
-              </svg>
-            </button>
+          <span className="text-[#BBBBBB] text-xs font-medium">EXPLORER</span>
+          <div className="flex items-center space-x-2">
+            <div className="flex items-center text-[#BBBBBB] text-xs">
+              <Users className="w-3 h-3 mr-1" />
+              <span>{userCount}</span>
+            </div>
+            <div className="flex space-x-1">
+              <button 
+                onClick={() => {
+                  setParentId(null);
+                  setNewItemType("file");
+                  setIsAdding(true);
+                }} 
+                className="p-1 text-[#BBBBBB] hover:text-white hover:bg-[#2A2D2E] rounded"
+                title="New File"
+              >
+                <File className="w-4 h-4" />
+              </button>
+              <button 
+                onClick={() => {
+                  setParentId(null);
+                  setNewItemType("folder");
+                  setIsAdding(true);
+                }} 
+                className="p-1 text-[#BBBBBB] hover:text-white hover:bg-[#2A2D2E] rounded"
+                title="New Folder"
+              >
+                <Folder className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </div>
+
         <div className="flex-1 overflow-y-auto py-1">
-          {(isAddingFile || isAddingFolder) && !parentId && (
-            <input
-              type="text"
-              autoFocus
-              className="bg-[#3C3C3C] text-white text-xs p-1 rounded w-full mb-1"
-              placeholder={isAddingFile ? "filename.js" : "folder name"}
-              value={isAddingFile ? newFileName : newFolderName}
-              onChange={(e) => 
-                isAddingFile 
-                  ? setNewFileName(e.target.value) 
-                  : setNewFolderName(e.target.value)
-              }
-              onKeyDown={(e) => handleAddItem(e, isAddingFile ? 'file' : 'folder')}
-              onBlur={() => {
-                setNewFileName("");
-                setNewFolderName("");
-                setIsAddingFile(false);
-                setIsAddingFolder(false);
-              }}
-            />
+          {isAdding && parentId === null && (
+            <div className="ml-4 my-1">
+              <input
+                type="text"
+                autoFocus
+                className="bg-[#3C3C3C] text-white text-xs p-1 rounded w-full"
+                placeholder={`New ${newItemType} name`}
+                value={newItemName}
+                onChange={(e) => setNewItemName(e.target.value)}
+                onKeyDown={handleAddItem}
+                onBlur={() => {
+                  setNewItemName("");
+                  setIsAdding(false);
+                }}
+              />
+            </div>
           )}
-          {renderFileTree(files)}
+          
+          {renderFileTree(new Map(
+            Array.from(yrootItems)
+              .map(id => [id, convertYItemToJS(yfileMap.get(id))])
+              .filter(([id, item]) => item !== null)
+          ))}
         </div>
       </div>
+
       <div className="flex-1 flex flex-col">
-        <Editor
-          height="80%"
-          language={activeFile ? getFileLanguage(activeFile.name) : language}
-          value={activeFile?.content || "// Select or create a file"}
-          theme={theme}
-          onChange={(value) => activeFileId && handleEditorChange(value, activeFileId)}
-          options={{
-            minimap: { enabled: true },
-            fontSize: 14,
-            wordWrap: "on",
-            automaticLayout: true,
-          }}
-        />
-        <div className="h-20% bg-[#1E1E1E] border-t border-[#1C1C1C] p-2 overflow-auto">
-          <pre className="text-xs text-[#CCCCCC]">{output}</pre>
-        </div>
+        {activeFileId ? (
+          <Editor
+            height="100%"
+            language={getLanguageFromFilename(yfileMap.get(activeFileId)?.get("name") || "")}
+            theme="vs-dark"
+            onMount={handleEditorMount}
+            options={{
+              fontSize: 14,
+              minimap: { enabled: true },
+              scrollBeyondLastLine: false,
+              automaticLayout: true
+            }}
+          />
+        ) : (
+          <div className="h-full flex items-center justify-center text-[#BBBBBB]">
+            Select a file to start editing
+          </div>
+        )}
       </div>
     </div>
   );

@@ -17,7 +17,7 @@ export default function AuthPage({ setAuth }) {
             }
             
             try {
-                const response = await fetch('http://localhost:5001/', {
+                const response = await fetch(' http://localhost:5001/', {
                     method: 'GET',
                     headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
                 });
@@ -70,6 +70,8 @@ export default function AuthPage({ setAuth }) {
             if (!response.ok) throw new Error(data.message);
             
             localStorage.setItem('token', data.token);
+            localStorage.setItem('username', data.username);
+            localStorage.setItem('email', data.useremail);
             setAuth(true);
             setIsAuthenticated(true);
         } catch (err) {

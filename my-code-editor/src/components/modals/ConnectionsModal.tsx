@@ -3,6 +3,7 @@ import { Modal } from './Modal';
 import { Copy, UserPlus, Check, Search } from 'lucide-react';
 import type { User } from '../../types';
 import { CodeSpaceInfo } from '../../../globaltool';
+import { useChange } from '../customhook/spaceinfo';
 import axios from 'axios';
 
 interface ConnectionsModalProps {
@@ -12,10 +13,11 @@ interface ConnectionsModalProps {
 }
 
 export function ConnectionsModal({ isOpen, onClose, connections }: ConnectionsModalProps) {
+  console.log('codeId: ',CodeSpaceInfo.currCodeSpaceId)
   const [copied, setCopied] = useState(false);
   const [search, setSearch] = useState('');
   const [filteredConnections, setFilteredConnections] = useState<User[]>(connections);
-
+  const {change}=useChange();
   useEffect(() => {
     const delayDebounce = setTimeout(async () => {
       if (!search.trim()) {

@@ -1,21 +1,12 @@
 const mongoose = require('mongoose');
 
-const fileSchema = new mongoose.Schema({
-    fileName: { type: String, required: true },
-    fileType: { type: String, enum: ['java', 'c++', 'python', 'js'], required: true },
-    createdAt: { type: Date, default: Date.now },
-    
-    fileContent: { type: String, default: '' }, // Current version of code
-    currCommitDescription: { type: String, default: '' },
-    currCommitFile: { type: String, default: '' },
-    currReplacedFiles: { type: String, default: '' },
-
-    lastfileContent: { type: String, default: '' }, // Previous version of code
-    lastCommitDescription: { type: String, default: '' },
-    lastCommitFile: { type: String, default: '' },
-    lastReplacedFiles: { type: String, default: '' }
+const FileSchema = new mongoose.Schema({
+  name: String,
+  folder: { type: mongoose.Schema.Types.ObjectId, ref: 'Folder' },
+  project: { type: mongoose.Schema.Types.ObjectId, ref: 'Project' },
+  content: Buffer, // Yjs encoded document
+  language: { type: String, default: 'javascript' },
+  updatedAt: { type: Date, default: Date.now }
 });
 
-// Prevent model overwriting
-const FileModel = mongoose.models.File || mongoose.model('File', fileSchema);
-module.exports = FileModel;
+module.exports = mongoose.model('File', FileSchema);

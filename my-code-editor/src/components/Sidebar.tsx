@@ -93,7 +93,7 @@ async function fetchCodeSpaces(
     }
 
     const response = await axios.post(
-      "http://localhost:5001/space/getCodeSpace",
+      " http://localhost:5001/space/getCodeSpace",
       {},
       {
         headers: {
@@ -150,7 +150,7 @@ export function Sidebar({ projects, activeProject, onProjectSelect }: SidebarPro
       fetchCodeSpaces(setSpaces, setChange, setCurrCodeSpaceName)
         .finally(() => setIsLoading(false));
     }
-  }, [change, setChange]);
+  }, [ setChange]);
 
   useEffect(() => {
     // Generate and store random icons for spaces that don't have avatars

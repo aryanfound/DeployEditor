@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const usermodel = require('../models/usermodel');
 const router = express.Router();
+const crypto = require('crypto');
 require('dotenv').config()
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret';
@@ -67,6 +68,7 @@ router.post('/login', async (req, res) => {
         }
 
         const user = await usermodel.findOne({ email });
+        
         if (!user) {
             return res.status(401).json({ message: 'Invalid credentials' });
         }
@@ -75,10 +77,11 @@ router.post('/login', async (req, res) => {
         if (!isMatch) {
             return res.status(401).json({ message: 'Invalid credentials' });
         }
-
+        const username=user.username;
+        const useremail=user.email;
         const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '7d' });
         
-        res.status(200).json({ message: 'Login successful', token });
+        res.status(200).json({ message: 'Login successful', token, username ,useremail});
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server error' });
