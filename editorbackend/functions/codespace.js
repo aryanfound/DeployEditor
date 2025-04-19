@@ -115,4 +115,22 @@ async function joinSpace(req,res){
     }
     
 }
-module.exports={createCodeSpace,getCodeSpace,getSpaceInfo,joinSpace}
+
+async function commitCode(req,res){
+    try{
+        const {commitMessage,commitDescription,codeSpaceId,data}=req.body;
+       
+
+        const updateData= await CodeSpace.findByIdAndUpdate(codeSpaceId,{$set:{centralyjs:data}}, {new:true})
+
+        return res.status(200).json({msg:"Code committed successfully"})
+    }
+    catch(err){
+        console.log(err)
+        return res.status(500).send();
+    }
+
+
+    
+}
+module.exports={createCodeSpace,getCodeSpace,getSpaceInfo,joinSpace,commitCode}

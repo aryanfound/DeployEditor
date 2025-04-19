@@ -7,6 +7,7 @@ export const CodeSpaceInfo: {
   currCodeSpaceId: string;
   currspacefolder: string[];
   spaces: { id: string; name: string; owners: string[] }[];
+  folder_bufferdata:Buffer[];
 
 } = {
   name: "",
@@ -14,6 +15,7 @@ export const CodeSpaceInfo: {
   currCodeSpaceId: "",
   currspacefolder: [],
   spaces: [],
+  folder_bufferdata: [], // Initialize folder_bufferdata as an empty array
 };
 
 export const currCodeSpaceName = CodeSpaceInfo.currCodeSpaceName; // Export currCodeSpaceName
@@ -46,6 +48,7 @@ export const setCodeSpace = async (
     CodeSpaceInfo.currCodeSpaceName = result.data.Name;
     CodeSpaceInfo.currCodeSpaceId = result.data._id;
     CodeSpaceInfo.currspacefolder = result.data.Files;
+    CodeSpaceInfo.folder_bufferdata = result.data.centralyjs; // Update folder_bufferdata with the response data
    
   // Update the current space folder in the context
     // Update the parent state for current code space name

@@ -12,6 +12,7 @@ const codeSpaceSchema = new mongoose.Schema({
     Files: { type: String, default: '' },
     accessKey: { type: String, default: '' },
     codespaceId: { type: String, default: '' } ,// Will store ObjectId as a string
+    rollbackyjs:{type:Buffer},
     centralyjs:{type:Buffer},
     split:[{name:{type:String},yjs:{type:Buffer}}]
 });

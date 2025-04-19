@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import { ydoc } from "../Editor";
 import { X } from "lucide-react";
-
+import { exportYjsStructure } from "../functions/yjsExport";
+import { CodeSpaceInfo } from "../../../globaltool";
 
 interface CommitModalProps {
   isOpen: boolean;
@@ -13,6 +14,7 @@ export function CommitModal({ isOpen, onClose, onCommit }: CommitModalProps) {
   const [commitMessage, setCommitMessage] = useState("");
   const [commitDescription, setCommitDescription] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  
 
   if (!isOpen) return null;
 
@@ -22,13 +24,21 @@ export function CommitModal({ isOpen, onClose, onCommit }: CommitModalProps) {
 
     setIsLoading(true);
     try {
-      // Here you would typically call your commit function
+      const exportdata = await exportYjsStructure(commitMessage, commitDescription);
+
+      if (!exportdata) {
+        throw new Error("Failed to export data.");
+      }
+
+      CodeSpaceInfo.folder_bufferdata.data = exportdata;
+
       onCommit(commitMessage, commitDescription);
       onClose();
+      console.log("Committed successfully");
     } catch (error) {
       console.error("Failed to commit:", error);
     } finally {
-      setIsLoading(false);
+      setIsLoading(false); // Ensure loading state is reset
     }
   };
 

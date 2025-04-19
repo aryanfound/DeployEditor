@@ -10,6 +10,8 @@ interface ChangeContextType {
   setCurrCodeSpaceId: (id: string) => void;
   currspacefolder: string[];
   setCurrspacefolder: (folders: string[]) => void;
+  codeChange: boolean;
+  setCodeChange: (value: boolean) => void;
 }
 
 // Create the context with a default value
@@ -21,6 +23,7 @@ export function ChangeProvider({ children }: { children: ReactNode }) {
   const [currCodeSpaceName, setCurrCodeSpaceName] = useState<string>("");
   const [currCodeSpaceId, setCurrCodeSpaceId] = useState<string>("");
   const [currspacefolder, setCurrspacefolder] = useState<string[]>([]);
+  const [codeChange, setCodeChange] = useState<boolean>(false);
 
   return (
     <ChangeContext.Provider
@@ -33,6 +36,8 @@ export function ChangeProvider({ children }: { children: ReactNode }) {
         setCurrCodeSpaceId,
         currspacefolder,
         setCurrspacefolder,
+        codeChange,
+        setCodeChange
       }}
     >
       {children}

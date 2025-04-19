@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef } from "react";
 import Editor from "@monaco-editor/react";
 import * as monaco from "monaco-editor";
-import { MonacoBinding } from "y-monaco"; 
+import { MonacoBinding } from "y-monaco";
 import * as Y from "yjs";
-import { WebsocketProvider } from 'y-websocket';
+import { WebsocketProvider } from "y-websocket";
 import { v4 as uuidv4 } from "uuid";
 import { CodeSpaceInfo } from "../../globaltool";
-import {useChange} from "../components/customhook/spaceinfo";
+import { useChange } from "../components/customhook/spaceinfo";
 import create_YSocket from "./yjs";
 import {
   File,
@@ -17,94 +17,234 @@ import {
   Plus,
   Trash2,
   Users,
-  Save
 } from "lucide-react";
+import { getDoc } from "./functions/yjsExport";
 
-let ydoc = new Y.Doc(); // Export for posting function
-let yfileMap = ydoc.getMap("fileMap");
-let yrootItems = ydoc.getArray("rootItems");
-let yprovider = create_YSocket(ydoc); // Create a single provider instance
+type FileItem = {
+  id: string;
+  name: string;
+  type: "file" | "folder";
+  parentId: string | null;
+  content?: string;
+  children?: string[];
+  isOpen?: boolean;
+};
 
-export default function CollaborativeEditor({ projectId }) {
-  const [files, setFiles] = useState(new Map());
+type FileMap = Map<string, FileItem>;
+
+export let ydoc: Y.Doc | null = null;
+let yfileMap: Y.Map<Y.Map<any>> | null = null;
+let yrootItems: Y.Array<string> | null = null;
+let yprovider: WebsocketProvider | null = null;
+
+export function getYDoc(): Y.Doc | null {
+  return ydoc;
+}
+
+const CollaborativeEditor: React.FC<{ projectId: string }> = ({ projectId }) => {
+  const [files, setFiles] = useState<FileMap>(new Map());
   const [newItemName, setNewItemName] = useState("");
   const [isAdding, setIsAdding] = useState(false);
-  const [activeFileId, setActiveFileId] = useState(null);
-  const [parentId, setParentId] = useState(null);
-  const [newItemType, setNewItemType] = useState("file");
+  const [activeFileId, setActiveFileId] = useState<string | null>(null);
+  const [parentId, setParentId] = useState<string | null>(null);
+  const [newItemType, setNewItemType] = useState<"file" | "folder">("file");
   const [userCount, setUserCount] = useState(1);
-  const editorRef = useRef(null);
-  const bindingRef = useRef(null);
-  const modelsRef = useRef(new Map());
-  const { change } = useChange();
+  const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+  const bindingRef = useRef<MonacoBinding | null>(null);
+  const modelsRef = useRef<Map<string, monaco.editor.ITextModel>>(new Map());
+  const { change, codeChange, setCodeChange } = useChange();
 
   const token = localStorage.getItem("token");
 
+  const clearYDoc = (doc: Y.Doc) => {
+    doc.transact(() => {}, true); // Clear undo history
+    
+    if (yfileMap) yfileMap.clear();
+    if (yrootItems) yrootItems.delete(0, yrootItems.length);
+    
+    modelsRef.current.forEach(model => model.dispose());
+    modelsRef.current.clear();
+    
+    setActiveFileId(null);
+  };
+
   const handleAwarenessChange = () => {
-    setUserCount(yprovider.awareness.getStates().size);
+    if (yprovider?.awareness) {
+      setUserCount(yprovider.awareness.getStates().size);
+    }
+  };
+
+  const convertYItemToJS = (yitem: Y.Map<any>): FileItem => {
+    const item: FileItem = {
+      id: yitem.get("id"),
+      name: yitem.get("name"),
+      type: yitem.get("type"),
+      parentId: yitem.get("parentId"),
+    };
+
+    if (item.type === "file") {
+      const content = yitem.get("content");
+      item.content = content?.toString() || "";
+    } else {
+      const children = yitem.get("children");
+      item.children = children?.toArray() || [];
+      item.isOpen = yitem.get("isOpen") || false;
+    }
+
+    return item;
+  };
+
+  const observer = () => {
+    try {
+      const fileMap: FileMap = new Map();
+      
+      if (yrootItems && yfileMap) {
+        yrootItems.forEach((id: string) => {
+          const yitem = yfileMap?.get(id);
+          if (yitem) {
+            fileMap.set(id, convertYItemToJS(yitem));
+          }
+        });
+      }
+      
+      setFiles(fileMap);
+      
+      if (activeFileId && yfileMap?.has(activeFileId)) {
+        setTimeout(() => setupEditorBinding(activeFileId), 0);
+      }
+    } catch (error) {
+      console.error("Error observing Yjs changes:", error);
+    }
+  };
+
+  const getChildItems = (parentId: string): FileMap => {
+    const childItems: FileMap = new Map();
+    const parent = yfileMap?.get(parentId);
+    
+    if (parent?.get("children")) {
+      parent.get("children").forEach((childId: string) => {
+        const child = yfileMap?.get(childId);
+        if (child) {
+          childItems.set(childId, convertYItemToJS(child));
+        }
+      });
+    }
+    
+    return childItems;
+  };
+
+  const performDocumentReset = async () => {
+    const YbufferData = getDoc();
+    
+    if (!YbufferData) {
+      console.error("No data available for reset");
+      return;
+    }
+
+    const tempDoc = new Y.Doc();
+    
+    try {
+      Y.applyUpdate(tempDoc, YbufferData);
+      
+      const tempFileMap = tempDoc.getMap("fileMap");
+      const tempRootItems = tempDoc.getArray("rootItems");
+      
+      if (tempFileMap.size === 0) {
+        throw new Error("No content found in temporary document");
+      }
+
+      if (yprovider) {
+        yprovider.disconnect();
+      }
+
+      if (ydoc) {
+        clearYDoc(ydoc);
+        
+        yfileMap = ydoc.getMap("fileMap");
+        yrootItems = ydoc.getArray("rootItems");
+        
+        const copyItem = (itemId: string) => {
+          const sourceItem = tempFileMap.get(itemId);
+          if (!sourceItem) return;
+
+          const newItem = new Y.Map();
+          
+          sourceItem.forEach((value, key) => {
+            if (value instanceof Y.Text) {
+              const newText = new Y.Text();
+              newText.insert(0, value.toString());
+              newItem.set(key, newText);
+            } else if (value instanceof Y.Array) {
+              const newArray = new Y.Array();
+              const items = value.toArray();
+              if (items.length > 0) {
+                newArray.insert(0, items);
+              }
+              newItem.set(key, newArray);
+            } else {
+              newItem.set(key, value);
+            }
+          });
+
+          yfileMap?.set(itemId, newItem);
+
+          if (sourceItem.get("type") === "folder" && sourceItem.get("children")) {
+            sourceItem.get("children").forEach((childId: string) => {
+              copyItem(childId);
+            });
+          }
+        };
+
+        const rootItems = tempRootItems.toArray().filter(id => id !== null && tempFileMap.has(id));
+        if (rootItems.length > 0) {
+          rootItems.forEach(itemId => {
+            copyItem(itemId);
+            yrootItems?.push([itemId]);
+          });
+        }
+      }
+
+      observer();
+    } catch (error) {
+      console.error("Error during document reset:", error);
+    } finally {
+      if (yprovider) {
+        yprovider.connect();
+      }
+      tempDoc.destroy();
+    }
   };
 
   const reconnectYjs = () => {
-    // Clean up old connections
-    if (yprovider) yprovider.destroy();
-    if (ydoc) ydoc.destroy();
-
-    // Reinitialize Yjs document and structures
-    ydoc = new Y.Doc();
+    if (yprovider) {
+      yprovider.destroy();
+    }
+    
+    if (!ydoc) {
+      ydoc = new Y.Doc();
+    }
+    
     yfileMap = ydoc.getMap("fileMap");
     yrootItems = ydoc.getArray("rootItems");
-
-    // Create new provider (socket connection)
+    
     yprovider = create_YSocket(ydoc);
-
-    // Set up awareness or listeners
-    yprovider.awareness.on("change", handleAwarenessChange);
-
-    // Observe changes in Yjs documents
-    const observer = () => {
-      const fileMap = new Map();
-      yrootItems.forEach((id) => {
-        const yitem = yfileMap.get(id);
-        if (yitem) {
-          fileMap.set(id, convertYItemToJS(yitem));
-        }
+    
+    if (yprovider?.awareness) {
+      yprovider.awareness.on("change", handleAwarenessChange);
+      yprovider.awareness.setLocalState({
+        user: token || "anonymous",
+        color: `#${Math.floor(Math.random() * 16777215).toString(16)}`,
       });
-      setFiles(fileMap);
-    };
-
+    }
+    
     yfileMap.observeDeep(observer);
     yrootItems.observe(observer);
-
-    // Call observer initially to populate files
+    
     observer();
-
-    // Set initial awareness state
-    yprovider.awareness.setLocalState({
-      user: token || "anonymous",
-      color: `#${Math.floor(Math.random() * 16777215).toString(16)}`,
-    });
-
-    // Clean up on unmount
-    return () => {
-      yfileMap.unobserveDeep(observer);
-      yrootItems.unobserve(observer);
-      yprovider.awareness.off("change", handleAwarenessChange);
-      yprovider.awareness.setLocalState(null);
-      modelsRef.current.forEach((model) => model.dispose());
-      modelsRef.current.clear();
-      if (bindingRef.current) {
-        bindingRef.current.destroy();
-        bindingRef.current = null;
-      }
-    };
   };
 
-  useEffect(() => {
-    reconnectYjs();
-  }, [change]);
-
-  const setupEditorBinding = (fileId) => {
-    if (!editorRef.current || !fileId) return;
+  const setupEditorBinding = (fileId: string) => {
+    if (!editorRef.current || !fileId || !yfileMap) return;
 
     const yfile = yfileMap.get(fileId);
     if (!yfile || yfile.get("type") !== "file") return;
@@ -114,81 +254,37 @@ export default function CollaborativeEditor({ projectId }) {
       bindingRef.current = null;
     }
 
-    let model;
+    let model: monaco.editor.ITextModel;
     if (modelsRef.current.has(fileId)) {
-      model = modelsRef.current.get(fileId);
+      model = modelsRef.current.get(fileId)!;
     } else {
-      const ytext = yfile.get("content");
+      const ytext = yfile.get("content") as Y.Text;
+      if (!ytext) return;
+      
       const modelUri = monaco.Uri.parse(`file:///${fileId}/${yfile.get("name")}`);
       model = monaco.editor.createModel(
         ytext.toString(),
-        undefined,
+        getLanguageFromFilename(yfile.get("name")),
         modelUri
       );
       modelsRef.current.set(fileId, model);
     }
 
     editorRef.current.setModel(model);
-
-    const ytext = yfile.get("content");
-    bindingRef.current = new MonacoBinding(
-      ytext,
-      model,
-      new Set([editorRef.current]),
-      yprovider.awareness
-    );
-
-    yprovider.awareness.setLocalState({
-      ...yprovider.awareness.getLocalState(),
-      editing: fileId,
-      user: token || "anonymous",
-    });
-  };
-
-  useEffect(() => {
-    if (activeFileId) {
-      setupEditorBinding(activeFileId);
-    }
-    return () => {
-      if (bindingRef.current) {
-        bindingRef.current.destroy();
-        bindingRef.current = null;
-      }
-    };
-  }, [activeFileId]);
-
-  const convertYItemToJS = (yitem) => {
-    if (!yitem) return null;
+    const ytext = yfile.get("content") as Y.Text;
     
-    const item = {};
-    yitem.forEach((value, key) => {
-      if (value instanceof Y.Array) {
-        item[key] = value.toArray();
-      } else if (value instanceof Y.Text) {
-        item[key] = value.toString();
-      } else {
-        item[key] = value;
-      }
-    });
-    return item;
+    if (yprovider) {
+      bindingRef.current = new MonacoBinding(
+        ytext,
+        model,
+        new Set([editorRef.current]),
+        yprovider.awareness
+      );
+    }
   };
 
-  const getChildItems = (parentId) => {
-    const childItems = new Map();
-    const parent = yfileMap.get(parentId);
-    if (!parent || !parent.get("children")) return childItems;
-
-    parent.get("children").forEach(childId => {
-      const child = yfileMap.get(childId);
-      if (child) {
-        childItems.set(childId, convertYItemToJS(child));
-      }
-    });
-    return childItems;
-  };
-
-  const handleAddItem = (e) => {
-    if (e.key === "Enter" && newItemName.trim()) {
+  const handleAddItem = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && newItemName.trim() && yfileMap && yrootItems) {
       const newId = uuidv4();
       const yitem = new Y.Map();
       
@@ -217,7 +313,7 @@ export default function CollaborativeEditor({ projectId }) {
       
       if (parentId) {
         const parent = yfileMap.get(parentId);
-        if (parent) {
+        if (parent?.get("children")) {
           parent.get("children").push([newId]);
         }
       } else {
@@ -240,9 +336,9 @@ export default function CollaborativeEditor({ projectId }) {
     }
   };
 
-  const getLanguageFromFilename = (filename) => {
-    const ext = filename.split('.').pop().toLowerCase();
-    const langMap = {
+  const getLanguageFromFilename = (filename: string): string | undefined => {
+    const ext = filename.split('.').pop()?.toLowerCase();
+    const langMap: Record<string, string> = {
       'js': 'javascript',
       'jsx': 'javascript',
       'ts': 'typescript',
@@ -255,76 +351,100 @@ export default function CollaborativeEditor({ projectId }) {
       'java': 'java',
       'cpp': 'cpp',
     };
-    return langMap[ext] || undefined;
+    return ext ? langMap[ext] : undefined;
   };
 
-  const toggleFolder = (folderId) => {
-    const yfolder = yfileMap.get(folderId);
+  const toggleFolder = (folderId: string) => {
+    const yfolder = yfileMap?.get(folderId);
     if (yfolder) {
       yfolder.set("isOpen", !yfolder.get("isOpen"));
     }
   };
 
-  const deleteItem = (itemId) => {
-    const yitem = yfileMap.get(itemId);
+  const deleteItem = (itemId: string) => {
+    const yitem = yfileMap?.get(itemId);
     if (!yitem) return;
 
     const parentId = yitem.get("parentId");
     
     if (parentId) {
-      const parent = yfileMap.get(parentId);
-      if (parent) {
+      const parent = yfileMap?.get(parentId);
+      if (parent?.get("children")) {
         const children = parent.get("children");
         const index = children.toArray().indexOf(itemId);
         if (index !== -1) {
           children.delete(index, 1);
         }
       }
-    } else {
+    } else if (yrootItems) {
       const index = yrootItems.toArray().indexOf(itemId);
       if (index !== -1) {
         yrootItems.delete(index, 1);
       }
     }
 
-    if (yitem.get("type") === "folder") {
-      yitem.get("children").forEach(childId => {
+    if (yitem.get("type") === "folder" && yitem.get("children")) {
+      yitem.get("children").toArray().forEach((childId: string) => {
         deleteItem(childId);
       });
     }
 
-    yfileMap.delete(itemId);
-
+    yfileMap?.delete(itemId);
+    
     if (modelsRef.current.has(itemId)) {
-      modelsRef.current.get(itemId).dispose();
+      modelsRef.current.get(itemId)?.dispose();
       modelsRef.current.delete(itemId);
     }
 
-    if (activeFileId === itemId && bindingRef.current) {
-      bindingRef.current.destroy();
-      bindingRef.current = null;
-    }
-
     if (activeFileId === itemId) {
+      if (bindingRef.current) {
+        bindingRef.current.destroy();
+        bindingRef.current = null;
+      }
       setActiveFileId(null);
     }
   };
 
-  const handleEditorMount = (editor) => {
+  const handleEditorMount = (editor: monaco.editor.IStandaloneCodeEditor) => {
     editorRef.current = editor;
-    
     if (activeFileId) {
       setupEditorBinding(activeFileId);
     }
   };
 
   useEffect(() => {
-    if (!activeFileId) return;
-    
-    if (editorRef.current) {
+    ydoc = new Y.Doc();
+    reconnectYjs();
+
+    return () => {
+      if (yfileMap) yfileMap.unobserveDeep(observer);
+      if (yrootItems) yrootItems.unobserve(observer);
+      
+      if (yprovider?.awareness) {
+        yprovider.awareness.off("change", handleAwarenessChange);
+        yprovider.awareness.setLocalState(null);
+        yprovider.destroy();
+      }
+      
+      modelsRef.current.forEach((model) => model.dispose());
+      modelsRef.current.clear();
+      
+      if (bindingRef.current) {
+        bindingRef.current.destroy();
+        bindingRef.current = null;
+      }
+      
+      if (ydoc) {
+        ydoc.destroy();
+        ydoc = null;
+      }
+    };
+  }, [change]);
+
+  useEffect(() => {
+    if (activeFileId) {
       setupEditorBinding(activeFileId);
     }
-
     return () => {
       if (bindingRef.current) {
         bindingRef.current.destroy();
@@ -334,133 +454,58 @@ export default function CollaborativeEditor({ projectId }) {
   }, [activeFileId]);
 
   useEffect(() => {
-    reconnectYjs();
-  }, [projectId]);
+    if (codeChange) {
+      performDocumentReset();
+      setCodeChange(false);
+    }
+  }, [codeChange, setCodeChange]);
 
-  const renderFileTree = (items, depth = 0) => {
-    return Array.from(items)
-      .filter(([id, item]) => item !== null)
-      .map(([id, item]) => {
-        if (!item?.type) return null;
-
-        const paddingLeft = `${12 + depth * 12}px`;
-        
-        if (item.type === "folder") {
-          return (
-            <div key={id}>
-              <div
-                className="flex items-center py-1 px-2 hover:bg-[#2A2D2E] rounded cursor-pointer text-[#CCCCCC] text-sm group"
-                style={{ paddingLeft }}
-                onClick={() => toggleFolder(id)}
-              >
-                <span className="w-4 mr-1 flex items-center">
-                  {item.isOpen ? 
-                    <ChevronDown className="w-[16px] h-[16px] opacity-80" /> : 
-                    <ChevronRight className="w-[16px] h-[16px] opacity-80" />}
-                </span>
-                {item.isOpen ? 
-                  <FolderOpen className="w-[18px] h-[18px] text-[#73C991] mr-2 opacity-90" /> :
-                  <Folder className="w-[18px] h-[18px] text-[#73C991] mr-2 opacity-90" />}
-                <span className="truncate">{item.name}</span>
-                <div className="ml-auto hidden group-hover:flex items-center space-x-1">
-                  <button 
-                    className="p-1 text-[#BBBBBB] hover:text-white"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setParentId(id);
-                      setNewItemType("file");
-                      setIsAdding(true);
-                    }}
-                    title="Add File"
-                  >
-                    <Plus className="w-3 h-3" />
-                  </button>
-                  <button 
-                    className="p-1 text-[#BBBBBB] hover:text-white"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setParentId(id);
-                      setNewItemType("folder");
-                      setIsAdding(true);
-                    }}
-                    title="Add Folder"
-                  >
-                    <Folder className="w-3 h-3" />
-                  </button>
-                  <button 
-                    className="p-1 text-[#BBBBBB] hover:text-white"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      deleteItem(id);
-                    }}
-                    title="Delete"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </button>
-                </div>
-              </div>
-              
-              {item.isOpen && (
-                <div className="pl-4">
-                  {isAdding && parentId === id && (
-                    <div className="ml-6 my-1">
-                      <input
-                        type="text"
-                        autoFocus
-                        className="bg-[#3C3C3C] text-white text-xs p-1 rounded w-full"
-                        placeholder={`New ${newItemType} name`}
-                        value={newItemName}
-                        onChange={(e) => setNewItemName(e.target.value)}
-                        onKeyDown={handleAddItem}
-                        onBlur={() => {
-                          setNewItemName("");
-                          setIsAdding(false);
-                          setParentId(null);
-                        }}
-                      />
-                    </div>
-                  )}
-                  {renderFileTree(getChildItems(id), depth + 1)}
-                </div>
-              )}
-            </div>
-          );
-        } else {
-          const editors = Array.from(yprovider.awareness.getStates().entries())
-            .filter(([_, state]) => state?.editing === id)
-            .map(([_, state]) => state?.user);
-
-          const isBeingEditedByOthers =
-            editors.length > 0 &&
-            !editors.includes(yprovider.awareness.clientID);
-
-          return (
+  const renderFileTree = (items: FileMap, depth = 0) => {
+    return Array.from(items.entries()).map(([id, item]) => {
+      const paddingLeft = `${12 + depth * 12}px`;
+      
+      if (item.type === "folder") {
+        return (
+          <div key={id}>
             <div
-              key={id}
-              className={`flex items-center py-1 px-2 hover:bg-[#2A2D2E] rounded text-[#CCCCCC] cursor-pointer text-sm group ${
-                activeFileId === id ? "bg-[#37373D]" : ""
-              }`}
+              className="flex items-center py-1 px-2 hover:bg-[#2A2D2E] rounded cursor-pointer text-[#CCCCCC] text-sm group"
               style={{ paddingLeft }}
-              onClick={() => setActiveFileId(id)}
+              onClick={() => toggleFolder(id)}
             >
-              <File
-                className={`w-[18px] h-[18px] ${
-                  isBeingEditedByOthers
-                    ? "text-[#F9A825]"
-                    : "text-[#519ABA]"
-                } mr-2 opacity-90`}
-              />
+              <span className="w-4 mr-1 flex items-center">
+                {item.isOpen ? 
+                  <ChevronDown className="w-[16px] h-[16px] opacity-80" /> : 
+                  <ChevronRight className="w-[16px] h-[16px] opacity-80" />}
+              </span>
+              {item.isOpen ? 
+                <FolderOpen className="w-[18px] h-[18px] text-[#73C991] mr-2 opacity-90" /> :
+                <Folder className="w-[18px] h-[18px] text-[#73C991] mr-2 opacity-90" />}
               <span className="truncate">{item.name}</span>
-              {editors.map((user, index) => (
-                <span
-                  key={index}
-                  className="ml-2 text-xs text-[#F9A825]"
-                  title={`Editing: ${user}`}
+              <div className="ml-auto hidden group-hover:flex items-center space-x-1">
+                <button 
+                  className="p-1 text-[#BBBBBB] hover:text-white"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setParentId(id);
+                    setNewItemType("file");
+                    setIsAdding(true);
+                  }}
+                  title="Add File"
                 >
-                  {user}
-                </span>
-              ))}
-              <div className="ml-auto hidden group-hover:flex">
+                  <Plus className="w-3 h-3" />
+                </button>
+                <button 
+                  className="p-1 text-[#BBBBBB] hover:text-white"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setParentId(id);
+                    setNewItemType("folder");
+                    setIsAdding(true);
+                  }}
+                  title="Add Folder"
+                >
+                  <Folder className="w-3 h-3" />
+                </button>
                 <button 
                   className="p-1 text-[#BBBBBB] hover:text-white"
                   onClick={(e) => {
@@ -473,9 +518,83 @@ export default function CollaborativeEditor({ projectId }) {
                 </button>
               </div>
             </div>
-          );
-        }
-      });
+            
+            {item.isOpen && (
+              <div className="pl-4">
+                {isAdding && parentId === id && (
+                  <div className="ml-6 my-1">
+                    <input
+                      type="text"
+                      autoFocus
+                      className="bg-[#3C3C3C] text-white text-xs p-1 rounded w-full"
+                      placeholder={`New ${newItemType} name`}
+                      value={newItemName}
+                      onChange={(e) => setNewItemName(e.target.value)}
+                      onKeyDown={handleAddItem}
+                      onBlur={() => {
+                        setNewItemName("");
+                        setIsAdding(false);
+                        setParentId(null);
+                      }}
+                    />
+                  </div>
+                )}
+                {renderFileTree(getChildItems(id), depth + 1)}
+              </div>
+            )}
+          </div>
+        );
+      } else {
+        const editors = yprovider?.awareness ? 
+          Array.from(yprovider.awareness.getStates().entries())
+            .filter(([_, state]) => state?.editing === id)
+            .map(([_, state]) => state?.user)
+            .filter(Boolean) : [];
+
+        const isBeingEditedByOthers = editors.length > 0;
+
+        return (
+          <div
+            key={id}
+            className={`flex items-center py-1 px-2 hover:bg-[#2A2D2E] rounded text-[#CCCCCC] cursor-pointer text-sm group ${
+              activeFileId === id ? "bg-[#37373D]" : ""
+            }`}
+            style={{ paddingLeft }}
+            onClick={() => setActiveFileId(id)}
+          >
+            <File
+              className={`w-[18px] h-[18px] ${
+                isBeingEditedByOthers
+                  ? "text-[#F9A825]"
+                  : "text-[#519ABA]"
+              } mr-2 opacity-90`}
+            />
+            <span className="truncate">{item.name}</span>
+            {editors.map((user, index) => (
+              <span
+                key={index}
+                className="ml-2 text-xs text-[#F9A825]"
+                title={`Editing: ${user}`}
+              >
+                {user}
+              </span>
+            ))}
+            <div className="ml-auto hidden group-hover:flex">
+              <button 
+                className="p-1 text-[#BBBBBB] hover:text-white"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  deleteItem(id);
+                }}
+                title="Delete"
+              >
+                <Trash2 className="w-3 h-3" />
+              </button>
+            </div>
+          </div>
+        );
+      }
+    });
   };
 
   return (
@@ -534,11 +653,7 @@ export default function CollaborativeEditor({ projectId }) {
             </div>
           )}
           
-          {renderFileTree(new Map(
-            Array.from(yrootItems)
-              .map(id => [id, convertYItemToJS(yfileMap.get(id))])
-              .filter(([id, item]) => item !== null)
-          ))}
+          {renderFileTree(files)}
         </div>
       </div>
 
@@ -546,7 +661,9 @@ export default function CollaborativeEditor({ projectId }) {
         {activeFileId ? (
           <Editor
             height="100%"
-            language={getLanguageFromFilename(yfileMap.get(activeFileId)?.get("name") || "")}
+            language={getLanguageFromFilename(
+              yfileMap?.get(activeFileId)?.get("name") || ""
+            )}
             theme="vs-dark"
             onMount={handleEditorMount}
             options={{
@@ -564,4 +681,6 @@ export default function CollaborativeEditor({ projectId }) {
       </div>
     </div>
   );
-}
+};
+
+export default CollaborativeEditor;
