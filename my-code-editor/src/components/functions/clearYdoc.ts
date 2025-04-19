@@ -8,6 +8,7 @@ export const clearYDoc = (
 ) => {
   doc.transact(() => {}, true); // Clear undo history
 
+  console.log(modelsRef)
   if (yfileMap) yfileMap.clear();
   if (yrootItems) yrootItems.delete(0, yrootItems.length);
 

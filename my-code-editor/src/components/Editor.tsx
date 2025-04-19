@@ -19,6 +19,8 @@ import {
   Users,
 } from "lucide-react";
 import { getDoc } from "./functions/yjsExport";
+import clearYDoc from "./functions/clearYdoc";
+import performDocumentReset from "./functions/restoreCode";
 
 type FileItem = {
   id: string;
@@ -56,17 +58,6 @@ const CollaborativeEditor: React.FC<{ projectId: string }> = ({ projectId }) => 
 
   const token = localStorage.getItem("token");
 
-  const clearYDoc = (doc: Y.Doc) => {
-    doc.transact(() => {}, true); // Clear undo history
-    
-    if (yfileMap) yfileMap.clear();
-    if (yrootItems) yrootItems.delete(0, yrootItems.length);
-    
-    modelsRef.current.forEach(model => model.dispose());
-    modelsRef.current.clear();
-    
-    setActiveFileId(null);
-  };
 
   const handleAwarenessChange = () => {
     if (yprovider?.awareness) {
@@ -133,87 +124,6 @@ const CollaborativeEditor: React.FC<{ projectId: string }> = ({ projectId }) => 
     return childItems;
   };
 
-  const performDocumentReset = async () => {
-    const YbufferData = getDoc();
-    
-    if (!YbufferData) {
-      console.error("No data available for reset");
-      return;
-    }
-
-    const tempDoc = new Y.Doc();
-    
-    try {
-      Y.applyUpdate(tempDoc, YbufferData);
-      
-      const tempFileMap = tempDoc.getMap("fileMap");
-      const tempRootItems = tempDoc.getArray("rootItems");
-      
-      if (tempFileMap.size === 0) {
-        throw new Error("No content found in temporary document");
-      }
-
-      if (yprovider) {
-        yprovider.disconnect();
-      }
-
-      if (ydoc) {
-        clearYDoc(ydoc);
-        
-        yfileMap = ydoc.getMap("fileMap");
-        yrootItems = ydoc.getArray("rootItems");
-        
-        const copyItem = (itemId: string) => {
-          const sourceItem = tempFileMap.get(itemId);
-          if (!sourceItem) return;
-
-          const newItem = new Y.Map();
-          
-          sourceItem.forEach((value, key) => {
-            if (value instanceof Y.Text) {
-              const newText = new Y.Text();
-              newText.insert(0, value.toString());
-              newItem.set(key, newText);
-            } else if (value instanceof Y.Array) {
-              const newArray = new Y.Array();
-              const items = value.toArray();
-              if (items.length > 0) {
-                newArray.insert(0, items);
-              }
-              newItem.set(key, newArray);
-            } else {
-              newItem.set(key, value);
-            }
-          });
-
-          yfileMap?.set(itemId, newItem);
-
-          if (sourceItem.get("type") === "folder" && sourceItem.get("children")) {
-            sourceItem.get("children").forEach((childId: string) => {
-              copyItem(childId);
-            });
-          }
-        };
-
-        const rootItems = tempRootItems.toArray().filter(id => id !== null && tempFileMap.has(id));
-        if (rootItems.length > 0) {
-          rootItems.forEach(itemId => {
-            copyItem(itemId);
-            yrootItems?.push([itemId]);
-          });
-        }
-      }
-
-      observer();
-    } catch (error) {
-      console.error("Error during document reset:", error);
-    } finally {
-      if (yprovider) {
-        yprovider.connect();
-      }
-      tempDoc.destroy();
-    }
-  };
 
   const reconnectYjs = () => {
     if (yprovider) {
@@ -455,7 +365,8 @@ const CollaborativeEditor: React.FC<{ projectId: string }> = ({ projectId }) => 
 
   useEffect(() => {
     if (codeChange) {
-      performDocumentReset();
+      performDocumentReset({ydoc,yfileMap,yrootItems,yprovider,modelsRef,setActiveFileId});  
+      observer();
       setCodeChange(false);
     }
   }, [codeChange, setCodeChange]);

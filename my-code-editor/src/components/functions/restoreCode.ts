@@ -18,7 +18,7 @@ const performDocumentReset = async ({
   setActiveFileId: React.Dispatch<React.SetStateAction<string | null>>;
 }) => {
   const YbufferData = getDoc();
-    
+   console.log(ydoc,yrootItems,yfileMap,modelsRef,setActiveFileId,yprovider) 
   if (!YbufferData) {
     console.error("No data available for reset");
     return;
