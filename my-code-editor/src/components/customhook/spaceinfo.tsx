@@ -1,4 +1,12 @@
-import { createContext, useContext, useState, ReactNode } from "react";
+// ChangeContext.tsx
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useRef,
+  ReactNode,
+} from "react";
+import socket from "../../socket"; // Adjust path based on your structure
 
 // Define the shape of the context
 interface ChangeContextType {
@@ -12,9 +20,10 @@ interface ChangeContextType {
   setCurrspacefolder: (folders: string[]) => void;
   codeChange: boolean;
   setCodeChange: (value: boolean) => void;
+  socketRef: React.RefObject<WebSocket | null>;
 }
 
-// Create the context with a default value
+// Create the context
 const ChangeContext = createContext<ChangeContextType | undefined>(undefined);
 
 // Provider component
@@ -24,6 +33,9 @@ export function ChangeProvider({ children }: { children: ReactNode }) {
   const [currCodeSpaceId, setCurrCodeSpaceId] = useState<string>("");
   const [currspacefolder, setCurrspacefolder] = useState<string[]>([]);
   const [codeChange, setCodeChange] = useState<boolean>(false);
+
+  // Initialize socketRef
+  const socketRef = useRef<WebSocket | null>(socket);
 
   return (
     <ChangeContext.Provider
@@ -37,7 +49,8 @@ export function ChangeProvider({ children }: { children: ReactNode }) {
         currspacefolder,
         setCurrspacefolder,
         codeChange,
-        setCodeChange
+        setCodeChange,
+        socketRef,
       }}
     >
       {children}

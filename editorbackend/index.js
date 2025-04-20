@@ -10,8 +10,10 @@ const getUser = require("./functions/getUser");
 const { authMiddleware } = require("./routes/authmiddleware");
 const codespaceRouter = require("./routes/codeSpaceRouter");
 const updateFile=require('./socket/updateFile')
-const webSocketServer=require('y-websocket')
+
 const Rooms=new Map()
+const connectionMap=new Map()
+
 require("dotenv").config();
 
 const app = express();
@@ -58,8 +60,8 @@ app.use(cors(corsOptions));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
 app.use(cookieParser());
-app.use('/', authMiddleware);
 app.get("/getusers", getUser);
+app.use('/', authMiddleware);
 app.use("/auth", authRouter);
 app.use("/space", codespaceRouter);
 
@@ -74,12 +76,41 @@ const authenticateSocket = (socket, next) => {
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
     socket.userId = decoded.userId;
-    next();
+    connectionMap.set(socket.userId,socket)
+    console.log("✅ User authenticated:", socket.userId);
   } catch (err) {
     console.log("❌ Invalid Token. Disconnecting...");
     next(new Error("Authentication error"));
   }
+
+  
 };
+
+
+io.on('connection',socket=>{
+  try{
+    authenticateSocket(socket)
+
+    socket.on('addConnection',data=>{
+      console.log(data)
+        const recipentId=data.recipent
+        console.log(connectionMap.keys())
+        if(connectionMap.has(recipentId)){
+          console.log('recipent there in server')
+          const recipentSocket=connectionMap.get(recipentId)
+          recipentSocket.emit('requestConnection',data)
+          console.log('data sent to recipent')
+        }
+      
+    })
+    
+  }
+  catch(err){
+    return socket.disconnect(true)
+  }
+})
+
+
 
 
 

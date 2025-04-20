@@ -43,6 +43,14 @@ export function getYDoc(): Y.Doc | null {
   return ydoc;
 }
 
+// Ensure mockProjects is handled safely
+const mockProjects = []; // Example initialization, replace with actual data source if applicable
+
+if (!mockProjects || mockProjects.length === 0) {
+  console.warn("No mock projects available.");
+  // Handle empty state, e.g., show a message or fallback UI
+}
+
 const CollaborativeEditor: React.FC<{ projectId: string }> = ({ projectId }) => {
   const [files, setFiles] = useState<FileMap>(new Map());
   const [newItemName, setNewItemName] = useState("");

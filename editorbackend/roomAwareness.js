@@ -22,8 +22,8 @@ function setupRoomAwarenessHandler(room) {
       if (shouldDisconnect) {
         console.log(`🛑 Admin requested disconnection in room "${room.name}"`);
 
-        // Disconnect all clients
-        for (const conn of room.connections.values()) {
+        // Disconnect eall clients
+        for (const conn of room.connections.valus()) {
           if (conn.readyState === WebSocket.OPEN) {
             conn.close(4000, '🔌 Disconnected by admin awareness update');
           }

@@ -91,7 +91,12 @@ async function joinSpace(req,res){
             console.log("Invalid userid:", userid);
             return res.status(400).json({ error: "Invalid User ID" });
         }
-    
+        
+
+        const userspaces=await usermodel.find({_id:userid,codeSpaces:spaceid})
+        if(userspaces.length>0){
+            return res.status(400).json({msg:"Already joined"})
+        }
         // Push user ID into CodeSpace Owners array
         const result = await CodeSpace.findByIdAndUpdate(
             spaceid,
@@ -117,6 +122,8 @@ async function joinSpace(req,res){
 }
 
 async function commitCode(req,res){
+
+    
     try{
         const {commitMessage,commitDescription,codeSpaceId,data}=req.body;
        

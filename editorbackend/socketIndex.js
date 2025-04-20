@@ -36,7 +36,7 @@ app.use(express.json());
 app.use(cookieParser());
 
 wss.documents = new Map();
-
+wss.user=new Map()
 // Connect to MongoDB
 const connectDB = async () => {
   try {
@@ -74,7 +74,10 @@ wss.on("connection", (ws, req) => {
         name: docName
       };
 
-      wss.documents.set(docName, room);
+      wss.documents.set(docName, room);//setting a room
+      wss.user.set(ws.userId,connections)//setting a connection
+
+
       setupRoomAwarenessHandler(room);
       console.log(`📂 New document room: ${docName}`);
     }
@@ -91,15 +94,33 @@ wss.on("connection", (ws, req) => {
 
     // Handle client sync log
     ws.on('message', (msg) => {
-      try {
+    
+     
+        try {
         const data = JSON.parse(msg);
+        console.log(data)
         if (data.type === "yjs-loaded") {
           console.log(`🚀 '${data.username}' fully synced to '${data.docName}'`);
         }
+        
       } catch (e) {
         console.error("❌ Invalid message JSON");
       }
     });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     // Cleanup when client disconnects
     ws.on("close", () => {
@@ -114,6 +135,7 @@ wss.on("connection", (ws, req) => {
         }, 30000);
       }
     });
+
 
     // Keepalive ping/pong
     ws.isAlive = true;

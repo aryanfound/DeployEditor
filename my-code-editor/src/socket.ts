@@ -1,27 +1,25 @@
-import { io, Socket } from "socket.io-client";
-import { WebsocketProvider } from "y-websocket";
-
-const token = localStorage.getItem("token");
-
-// Socket.IO connection
-export const socket: Socket = io(" http://localhost:5173", {
-  query: { token },
-  transports: ["websocket"],
+import { io } from 'socket.io-client'
+const token=localStorage.getItem('token')
+export const clientSocket = io('http://localhost:5001', {
+  autoConnect: true,
+  transports: ['websocket'],
   reconnection: true,
-  reconnectionAttempts: 5,
-  reconnectionDelay: 2000,
+  reconnectionAttempts: Infinity,
+  reconnectionDelay: 1000,
+  reconnectionDelayMax: 5000,
+  timeout: 20000,
+  query: {
+    token: token, // this becomes ?token=your-token
+  },
 });
-
-// Event listeners
-socket.on("connect", () => {
-  console.log("Connected to server:", socket.id);
-});
-
-socket.on("disconnect", () => {
-  console.log("Disconnected from server");
-});
-
-// Yjs WebsocketProvider with token query
+clientSocket.on('connect',()=>{
+  console.log('connected to server')
+})
 
 
-export default { socket };
+clientSocket.on('notify',(data)=>{
+  console.log(data)
+})
+
+
+export default clientSocket

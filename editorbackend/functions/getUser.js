@@ -1,6 +1,7 @@
 const UserModel = require('../models/usermodel'); // Adjust path as needed
 
 async function getUser(req, res) {
+    console.log('finding user')
     try {
         const part = req.query.part;
         if (!part) {

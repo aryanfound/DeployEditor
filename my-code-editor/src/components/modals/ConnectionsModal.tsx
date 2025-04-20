@@ -5,12 +5,18 @@ import type { User } from '../../types';
 import { CodeSpaceInfo } from '../../../globaltool';
 import { useChange } from '../customhook/spaceinfo';
 import axios from 'axios';
-
+import {clientSocket} from '../../socket'
 interface ConnectionsModalProps {
   isOpen: boolean;
   onClose: () => void;
   connections: User[];
 }
+
+function handleAddConnection(receiverId: string) {
+  console.log('Adding connection to:', receiverId);
+  clientSocket.emit('addConnection',{recipent:receiverId,codeSpaceId:CodeSpaceInfo.currCodeSpaceId,sender:localStorage.getItem('username')});
+}
+
 
 export function ConnectionsModal({ isOpen, onClose, connections }: ConnectionsModalProps) {
   console.log('codeId: ',CodeSpaceInfo.currCodeSpaceId)
@@ -79,7 +85,9 @@ export function ConnectionsModal({ isOpen, onClose, connections }: ConnectionsMo
                 />
                 <span className="text-white">{username}</span>
               </div>
-              <button className="text-gray-400 hover:text-white">
+              <button className="text-gray-400 hover:text-white" onClick={()=>{
+                handleAddConnection(_id);
+              }}>
                 <UserPlus className="w-4 h-4" />
               </button>
             </div>
