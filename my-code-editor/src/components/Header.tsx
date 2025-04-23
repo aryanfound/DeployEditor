@@ -19,6 +19,8 @@ import { CodeSpaceInfo } from "../../globaltool";
 import * as Y from 'yjs';
 import { ydoc } from './Editor'
 
+import { InterConnectionsModal } from "./modals/InterConnectionModel";
+
 
 
 interface HeaderProps {
@@ -178,10 +180,10 @@ export function Header({ projectName, onToggleTerminal }: HeaderProps) {
       </div>
 
       {/* Modals */}
-      <ConnectionsModal
+      <InterConnectionsModal
         isOpen={showConnections}
         onClose={() => setShowConnections(false)}
-        connections={mockUsers}
+        connections={[]}
       />
 
       <ActiveUsersModal

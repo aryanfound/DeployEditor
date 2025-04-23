@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Modal } from './Modal';
-import { UserPlus, GitPullRequest, Code, FileText, Users, MessageSquare } from 'lucide-react';
+import { UserPlus, GitPullRequest, Code, FileText, Users, MessageSquare, Check } from 'lucide-react';
 import { clientSocket } from '../../socket';
 
 interface NotificationsModalProps {
@@ -13,13 +13,21 @@ interface ConnectionRequest {
   username: string;
   message: string;
   sender: string;
-  receiver: string; // Added receiver field
+  receiver: string;
   type: 'connection' | 'codespace' | 'document' | 'chat' | string;
   timestamp: number;
 }
 
+interface RequestAccepted {
+  acceptedby: string;
+  requestId?: string;
+  sender?: string;
+  timestamp?: number;
+}
+
 export function NotificationsModal({ isOpen, onClose }: NotificationsModalProps) {
   const [connectionRequests, setConnectionRequests] = useState<ConnectionRequest[]>([]);
+  const [acceptedRequests, setAcceptedRequests] = useState<RequestAccepted[]>([]);
   
   useEffect(() => {
     const handleRequestConnection = (data: ConnectionRequest) => {
@@ -39,15 +47,45 @@ export function NotificationsModal({ isOpen, onClose }: NotificationsModalProps)
       }
     };
     
+    const handleRequestAccepted = (data: RequestAccepted) => {
+      console.log('Request accepted data:', data);
+      
+      // Add to accepted requests list with timestamp
+      setAcceptedRequests(prev => [
+        ...prev, 
+        {
+          ...data,
+          timestamp: Date.now()
+        }
+      ]);
+      
+      // Remove from pending requests if it exists there
+      if (data.requestId) {
+        setConnectionRequests(prev => 
+          prev.filter(req => req.id !== data.requestId)
+        );
+      }
+    };
+    
     clientSocket.on('requestConnection', handleRequestConnection);
+    clientSocket.on('requestAcceptance', handleRequestAccepted);
     
     return () => {
       clientSocket.off('requestConnection', handleRequestConnection);
+      clientSocket.off('requestAcceptance', handleRequestAccepted);
     };
   }, [connectionRequests]); 
   
   const handleAccept = (requestId: string, sender: string) => {
-    clientSocket.emit('acceptConnection', { requestId, sender });
+    console.log('Accepting request from:', sender, 'Request ID:', requestId);
+    clientSocket.emit('joinConnections', {
+      first: localStorage.getItem('username'),
+      second: sender
+    });
+    clientSocket.emit('acceptedConnection', {
+      requestId,
+      sender
+    });
     setConnectionRequests(prev => prev.filter(req => req.id !== requestId));
   };
   
@@ -113,7 +151,7 @@ export function NotificationsModal({ isOpen, onClose }: NotificationsModalProps)
                         <span className="text-xs text-gray-400">{getTimeElapsed(request.timestamp)}</span>
                       </div>
                       <p className="text-sm text-blue-400 capitalize mb-1">
-                        {request.type} Request for {request.receiver} {/* Added receiver display */}
+                        {request.type} Request from <span className="font-semibold">{request.sender}</span>  <span className="font-semibold">{request.receiver}</span>
                       </p>
                       <p className="text-sm text-gray-300">{request.message}</p>
                     </div>
@@ -144,6 +182,39 @@ export function NotificationsModal({ isOpen, onClose }: NotificationsModalProps)
           )}
         </div>
         
+        {/* Accepted Requests Section */}
+        {acceptedRequests.length > 0 && (
+          <div className="mt-4">
+            <h4 className="text-sm font-medium text-gray-400 mb-2">Recently Accepted</h4>
+            <div className="space-y-3">
+              {acceptedRequests.slice(0, 3).map((accepted, index) => (
+                
+                <div key={index} className="bg-gray-800 rounded-lg p-4 border-l-4 border-green-500">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 bg-gray-700 rounded-full">
+                      <Check className="w-5 h-5 text-green-500" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium text-white">Connection Accepted </p>
+                        {accepted.timestamp && (
+                          <span className="text-xs text-gray-400">{getTimeElapsed(accepted.timestamp)}</span>
+                        )}
+                      </div>
+                      <p className="text-sm text-green-400 mb-1">
+                        <span className="font-semibold">{accepted.acceptedby}</span> accepted connection request
+                        {accepted.sender && (
+                          <> from <span className="font-semibold">{accepted.sender}</span></>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        
         {/* Sample codespace request section */}
         <div className="mt-4">
           <h4 className="text-sm font-medium text-gray-400 mb-2">Recent Activity</h4>
@@ -159,7 +230,7 @@ export function NotificationsModal({ isOpen, onClose }: NotificationsModalProps)
                     <span className="text-xs text-gray-400">2h ago</span>
                   </div>
                   <p className="text-sm text-green-400 mb-1">
-                    Codespace Invitation for Alex Johnson {/* Added receiver example */}
+                    Codespace Invitation for Alex Johnson
                   </p>
                   <p className="text-sm text-gray-300">Feature: Add Authentication Flow</p>
                 </div>

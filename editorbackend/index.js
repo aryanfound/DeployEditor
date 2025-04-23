@@ -13,7 +13,7 @@ const updateFile=require('./socket/updateFile')
 
 const Rooms=new Map()
 const connectionMap=new Map()
-
+const joinConnection=require('./functions/joinConnnection')
 require("dotenv").config();
 
 const app = express();
@@ -64,7 +64,7 @@ app.get("/getusers", getUser);
 app.use('/', authMiddleware);
 app.use("/auth", authRouter);
 app.use("/space", codespaceRouter);
-
+app.use('/getConnection',(req,res)=>{getConnection})
 const userFiles = {}; 
 
 const authenticateSocket = (socket, next) => {
@@ -102,6 +102,12 @@ io.on('connection',socket=>{
           console.log('data sent to recipent')
         }
       
+    })
+
+    socket.on('joinConnections',(data)=>{
+      console.log(data)
+      //const usesocket=connectionMap.get(socket.userId)
+      joinConnection({first:data.first,second:data.second,connectionMap})
     })
     
   }

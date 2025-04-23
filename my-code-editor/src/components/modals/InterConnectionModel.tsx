@@ -1,26 +1,29 @@
 import React, { useState, useEffect } from 'react';
 import { Modal } from './Modal';
-import { Copy, UserPlus, Check, Search, Loader2 } from 'lucide-react';
+import { Copy, UserPlus, Check, Search } from 'lucide-react';
 import type { User } from '../../types';
 import { CodeSpaceInfo } from '../../../globaltool';
 import { useChange } from '../customhook/spaceinfo';
 import axios from 'axios';
-import { clientSocket } from '../../socket';
-
+import {clientSocket} from '../../socket'
 interface ConnectionsModalProps {
   isOpen: boolean;
   onClose: () => void;
   connections: User[];
 }
 
-export function ConnectionsModal({ isOpen, onClose, connections }: ConnectionsModalProps) {
-  console.log('codeId: ', CodeSpaceInfo.currCodeSpaceId);
+function handleAddConnection(receiverId: string) {
+  console.log('Adding connection to:', receiverId);
+  clientSocket.emit('addConnection',{recipent:receiverId,codeSpaceId:CodeSpaceInfo.currCodeSpaceId,sender:localStorage.getItem('username')});
+}
+
+
+export function InterConnectionsModal({ isOpen, onClose, connections }: ConnectionsModalProps) {
+  console.log('codeId: ',CodeSpaceInfo.currCodeSpaceId)
   const [copied, setCopied] = useState(false);
   const [search, setSearch] = useState('');
   const [filteredConnections, setFilteredConnections] = useState<User[]>(connections);
-  const [pendingRequests, setPendingRequests] = useState<Record<string, string>>({});
-  const { change } = useChange();
-
+  const {change}=useChange();
   useEffect(() => {
     const delayDebounce = setTimeout(async () => {
       if (!search.trim()) {
@@ -28,7 +31,15 @@ export function ConnectionsModal({ isOpen, onClose, connections }: ConnectionsMo
         return;
       }
       try {
-        const { data } = await axios.get(`http://localhost:5001/getusers?part=${search}`);
+        const {data}=await axios.post('http://localhost:5001/getConnections',{
+            headers:{
+                'Authorization':`Bearer ${localStorage.getItem('token')}`,
+                'Content-Type':'application/json'
+            }
+            ,
+            part:search,
+        })
+        console.log('data found: ',data)
         setFilteredConnections(data);
       } catch (error) {
         console.error("Error fetching users:", error);
@@ -36,48 +47,6 @@ export function ConnectionsModal({ isOpen, onClose, connections }: ConnectionsMo
     }, 300);
     return () => clearTimeout(delayDebounce);
   }, [search, connections]);
-
-  // Setup socket listener for connection responses
-  useEffect(() => {
-    const handleConnectionResponse = (data: { userId: string, status: string }) => {
-      if (data.status === 'accepted' || data.status === 'rejected') {
-        setPendingRequests(prev => {
-          const updated = { ...prev };
-          delete updated[data.userId];
-          return updated;
-        });
-      }
-    };
-
-    clientSocket.on('connectionResponse', handleConnectionResponse);
-
-    return () => {
-      clientSocket.off('connectionResponse', handleConnectionResponse);
-    };
-  }, []);
-
-  const handleAddConnection = (receiverId: string) => {
-    console.log('Adding connection to:', receiverId);
-    // Set the state to "pending" to show loading animation
-    setPendingRequests(prev => ({ ...prev, [receiverId]: 'pending' }));
-    
-    // Emit the socket event
-    clientSocket.emit('addConnection', {
-      recipent: receiverId,
-      codeSpaceId: CodeSpaceInfo.currCodeSpaceId,
-      sender: localStorage.getItem('username')
-    });
-    
-    // After 3 seconds, change to "sent" state if still pending
-    setTimeout(() => {
-      setPendingRequests(prev => {
-        if (prev[receiverId] === 'pending') {
-          return { ...prev, [receiverId]: 'sent' };
-        }
-        return prev;
-      });
-    }, 3000);
-  };
 
   const copyAccessKey = async () => {
     try {
@@ -94,28 +63,8 @@ export function ConnectionsModal({ isOpen, onClose, connections }: ConnectionsMo
     return avatar || `https://i.pravatar.cc/150?img=${parseInt(id, 16) % 70 + 1}`;
   };
 
-  // Function to render the appropriate button based on request state
-  const renderConnectionButton = (userId: string) => {
-    const status = pendingRequests[userId];
-    
-    switch (status) {
-      case 'pending':
-        return (
-          <Loader2 className="w-4 h-4 animate-spin text-blue-400" />
-        );
-      case 'sent':
-        return (
-          <Check className="w-4 h-4 text-green-400" />
-        );
-      default:
-        return (
-          <UserPlus className="w-4 h-4" />
-        );
-    }
-  };
-
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Connections">
+    <Modal isOpen={isOpen} onClose={onClose} title="Ask to Join CodeSpace">
       <div className="space-y-4">
         {/* Search Input */}
         <div className="relative">
@@ -144,20 +93,10 @@ export function ConnectionsModal({ isOpen, onClose, connections }: ConnectionsMo
                 />
                 <span className="text-white">{username}</span>
               </div>
-              <button 
-                className={`p-1 rounded-full transition-all duration-300 ${
-                  pendingRequests[_id] === 'pending' ? 'bg-blue-500/20' : 
-                  pendingRequests[_id] === 'sent' ? 'bg-green-500/20' : 
-                  'text-gray-400 hover:text-white hover:bg-[#404249]'
-                }`} 
-                onClick={() => {
-                  if (!pendingRequests[_id]) {
-                    handleAddConnection(_id);
-                  }
-                }}
-                disabled={!!pendingRequests[_id]}
-              >
-                {renderConnectionButton(_id)}
+              <button className="text-gray-400 hover:text-white" onClick={()=>{
+                handleAddConnection(_id);
+              }}>
+                <UserPlus className="w-4 h-4" />
               </button>
             </div>
           ))}
