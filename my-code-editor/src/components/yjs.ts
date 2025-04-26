@@ -2,16 +2,25 @@ import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 import { CodeSpaceInfo } from '../../globaltool';
 
-export default function create_YSocket(ydoc) {
+export default function create_YSocket({ydoc,setreadyYjs}:{
+  ydoc:Y.Doc|null,
+  setreadyYjs:(readyYjs:boolean)=>void
+}) {
+  setreadyYjs(false)
+  console.log('connecting to new code space')
   const token = localStorage.getItem('token');
   const username = localStorage.getItem('username') || 'anonymous';
 
+ 
   const yprovider = new WebsocketProvider(
     "ws://localhost:5003",
     CodeSpaceInfo.currCodeSpaceId,
     ydoc,
     { params: { token } }
   );
+
+  
+
 
   // Initial awareness
   yprovider.awareness.setLocalState({
@@ -60,5 +69,11 @@ export default function create_YSocket(ydoc) {
     }
   });
 
+  setreadyYjs(true)
+
+  console.log('new code space connected successfully')
   return yprovider;
 }
+
+
+

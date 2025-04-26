@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Modal } from './Modal';
-import { GitPullRequest, Eye, Check, X } from 'lucide-react';
+import { GitPullRequest, Check, X } from 'lucide-react';
+import axios from 'axios';
 
 interface PullRequestModalProps {
   isOpen: boolean;
@@ -8,92 +9,100 @@ interface PullRequestModalProps {
 }
 
 export function PullRequestModal({ isOpen, onClose }: PullRequestModalProps) {
-  const [fileName, setFileName] = useState('');
-  const [codespaceName, setCodespaceName] = useState('');
-  const [showPreview, setShowPreview] = useState(false);
+  const [codespaceId, setCodespaceId] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleApprove = () => {
-    console.log('Approving pull request');
-    onClose();
+  const token = localStorage.getItem('token');
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+  };
+
+  const handleApprove = async () => {
+    if (!codespaceId) {
+      setError('Codespace ID is required');
+      return;
+    }
+
+    setIsLoading(true);
+    setError('');
+
+    try {
+      const response = await axios.post(
+        'http://localhost:5001/space/pullSpace',
+        { codespaceId },
+        { headers }
+      );
+      console.log('Pull request approved:', response.data);
+      onClose();
+    } catch (err) {
+      console.error('Error approving pull request:', err);
+      setError('Failed to approve pull request. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleReject = () => {
-    console.log('Rejecting pull request');
+    console.log(`Rejecting pull request for codespace: ${codespaceId}`);
     onClose();
   };
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Pull Request">
-      <div className="space-y-4">
-        <div className="flex items-center gap-3 mb-6">
-          <img
-            className="w-10 h-10 rounded-full"
-            src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=40&h=40&fit=crop&crop=faces"
-            alt="Requester"
-          />
+      <div className="space-y-6">
+        <div className="flex items-center gap-3">
+          <div className="p-3 bg-blue-500 rounded-full">
+            <GitPullRequest className="w-5 h-5 text-white" />
+          </div>
           <div>
-            <h3 className="text-white font-medium">John Doe</h3>
-            <p className="text-sm text-gray-400">Requested changes</p>
+            <h3 className="text-white font-medium">Pull Request</h3>
+            <p className="text-sm text-gray-400">Review changes</p>
           </div>
         </div>
 
         <div className="space-y-2">
-          <label className="block text-sm text-gray-400">File Name</label>
+          <label className="block text-sm text-gray-400">Codespace ID</label>
           <input
             type="text"
-            value={fileName}
-            onChange={(e) => setFileName(e.target.value)}
-            placeholder="Enter file name"
-            className="w-full bg-[#1e1f22] text-white px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-[#5865f2]"
+            value={codespaceId}
+            onChange={(e) => {
+              setCodespaceId(e.target.value);
+              setError('');
+            }}
+            placeholder="Enter codespace ID"
+            className="w-full bg-[#1e1f22] text-white px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
+          {error && <p className="text-red-500 text-sm mt-1">{error}</p>}
         </div>
 
-        <div className="space-y-2">
-          <label className="block text-sm text-gray-400">Codespace Name</label>
-          <input
-            type="text"
-            value={codespaceName}
-            onChange={(e) => setCodespaceName(e.target.value)}
-            placeholder="Enter codespace name"
-            className="w-full bg-[#1e1f22] text-white px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-[#5865f2]"
-          />
-        </div>
-
-        {showPreview ? (
-          <div className="bg-[#1e1f22] rounded p-4 h-48 overflow-auto">
-            <pre className="text-gray-300 text-sm">
-              {/* <code>
-                // Preview of changes will appear here
-                // function example()
-                //   console.log("Preview");
-                //
-              </code> */}
-            </pre>
-          </div>
-        ) : (
-          <button
-            onClick={() => setShowPreview(true)}
-            className="w-full bg-[#404249] text-white py-2 rounded hover:bg-[#4752c4] transition-colors flex items-center justify-center gap-2"
-          >
-            <Eye className="w-4 h-4" />
-            Preview Changes
-          </button>
-        )}
-
-        <div className="flex gap-3">
-          <button
-            onClick={handleApprove}
-            className="flex-1 bg-green-600 text-white py-2 rounded hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
-          >
-            <Check className="w-4 h-4" />
-            Approve
-          </button>
+        <div className="flex gap-3 pt-2">
           <button
             onClick={handleReject}
-            className="flex-1 bg-red-600 text-white py-2 rounded hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
+            disabled={isLoading}
+            className="flex-1 bg-red-600 text-white py-2 rounded hover:bg-red-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
           >
             <X className="w-4 h-4" />
             Reject
+          </button>
+          <button
+            onClick={handleApprove}
+            disabled={!codespaceId || isLoading}
+            className={`flex-1 py-2 rounded transition-colors flex items-center justify-center gap-2 ${
+              codespaceId && !isLoading
+                ? 'bg-green-600 hover:bg-green-700 text-white'
+                : 'bg-gray-500 text-gray-300 cursor-not-allowed'
+            }`}
+          >
+            {isLoading ? (
+              'Processing...'
+            ) : (
+              <>
+                <Check className="w-4 h-4" />
+                Approve
+              </>
+            )}
           </button>
         </div>
       </div>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="200" height="60" viewBox="0 0 200 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="200" height="60" rx="10" fill="#0D0D2B"/>
+  <text x="20" y="38" font-family="Courier New, monospace" font-size="28" fill="#00FFD1">
+    Dev <tspan fill="#FF6EC7">Verse</tspan>
+  </text>
+  <circle cx="180" cy="30" r="5" fill="#FF6EC7"/>
+  <circle cx="190" cy="20" r="2" fill="#00FFD1"/>
+  <circle cx="190" cy="40" r="2" fill="#00FFD1"/>
+</svg>

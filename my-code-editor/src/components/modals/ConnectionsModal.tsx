@@ -115,7 +115,7 @@ export function ConnectionsModal({ isOpen, onClose, connections }: ConnectionsMo
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Connections">
+    <Modal isOpen={isOpen} onClose={onClose} title="Add to Connections">
       <div className="space-y-4">
         {/* Search Input */}
         <div className="relative">

@@ -2,6 +2,7 @@ const CodeSpace = require('../models/codespace');
 const codespace=require('../models/codespace')
 const usermodel=require('../models/usermodel')
 const mongoose=require('mongoose');
+const { copy } = require('../routes/auth');
 async function createCodeSpace(req, res) {
     try {
         const { name, accessKey } = req.body;
@@ -140,4 +141,48 @@ async function commitCode(req,res){
 
     
 }
-module.exports={createCodeSpace,getCodeSpace,getSpaceInfo,joinSpace,commitCode}
+
+
+async function copyCodeSpace({name,accessKey,req,res,spacefolderdata}) {
+    try {
+        
+
+        if (!name ) {
+            console.log('name not there')
+            return res.status(400).json({ error: "Name and email are required" });
+        }
+
+        // Create new CodeSpace
+        console.log(spacefolderdata)
+        const userSpace = new codespace({
+            Name: name,
+            Admin: [req.userid], 
+            Owners:[req.userid],// Should be ObjectId, change it accordingly
+            accessKey: accessKey,
+            centralyjs:spacefolderdata
+        });
+        
+        const result = await userSpace.save();
+        
+        // Store _id as a string in codespaceId
+        await codespace.findByIdAndUpdate(result._id, { codespaceId: ((`${result._id.toString()}`)) });
+
+        const spaceid = result._id;
+        console.log('user id is');
+        console.log(req.userid);
+
+        const user = await usermodel.findByIdAndUpdate(
+            req.userid,
+            { $push: { codeSpaces: spaceid } }, 
+            { new: true } // To return updated document (optional)
+        );
+
+        console.log(user);
+
+        return res.status(201).json({ message: "CodeSpace created successfully", codespace: userSpace });
+    } catch (error) {
+        console.error("Error creating CodeSpace:", error);
+        return res.status(500).json({ error: "Internal server error" });
+    }
+}
+module.exports={createCodeSpace,getCodeSpace,getSpaceInfo,joinSpace,commitCode,copyCodeSpace}

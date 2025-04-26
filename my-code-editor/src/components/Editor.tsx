@@ -1,13 +1,29 @@
-import React, { useState, useEffect, useRef } from "react";
-import Editor from "@monaco-editor/react";
-import * as monaco from "monaco-editor";
-import { MonacoBinding } from "y-monaco";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { EditorView, basicSetup } from "codemirror";
+import { EditorState } from "@codemirror/state";
+import { javascript } from "@codemirror/lang-javascript";
+import { html } from "@codemirror/lang-html";
+import { css } from "@codemirror/lang-css";
+import { json } from "@codemirror/lang-json";
+import { python } from "@codemirror/lang-python";
+import { motion, AnimatePresence } from "framer-motion";
+import { markdown } from "@codemirror/lang-markdown";
+import { java } from "@codemirror/lang-java";
+import { cpp } from "@codemirror/lang-cpp";
+import { oneDark } from "@codemirror/theme-one-dark";
 import * as Y from "yjs";
 import { WebsocketProvider } from "y-websocket";
+import {vscodeDark} from "@uiw/codemirror-theme-vscode"
+import { yCollab } from "y-codemirror.next";
 import { v4 as uuidv4 } from "uuid";
 import { CodeSpaceInfo } from "../../globaltool";
 import { useChange } from "../components/customhook/spaceinfo";
 import create_YSocket from "./yjs";
+import { ChatIcon } from './modals/chatIcon';
+import { ChatPanel } from './modals/Chat';
+import { Terminal } from 'xterm';
+import 'xterm/css/xterm.css';
+import { FitAddon } from 'xterm-addon-fit';
 import {
   File,
   Folder,
@@ -17,6 +33,7 @@ import {
   Plus,
   Trash2,
   Users,
+  Play,
 } from "lucide-react";
 import { getDoc } from "./functions/yjsExport";
 import clearYDoc from "./functions/clearYdoc";
@@ -37,19 +54,19 @@ type FileMap = Map<string, FileItem>;
 export let ydoc: Y.Doc | null = null;
 let yfileMap: Y.Map<Y.Map<any>> | null = null;
 let yrootItems: Y.Array<string> | null = null;
-let yprovider: WebsocketProvider | null = null;
+export let yprovider: WebsocketProvider | null = null;
 
 export function getYDoc(): Y.Doc | null {
   return ydoc;
 }
 
-// Ensure mockProjects is handled safely
-const mockProjects = []; // Example initialization, replace with actual data source if applicable
-
-if (!mockProjects || mockProjects.length === 0) {
-  console.warn("No mock projects available.");
-  // Handle empty state, e.g., show a message or fallback UI
-}
+const debounce = (func: Function, delay: number) => {
+  let timeoutId: NodeJS.Timeout;
+  return (...args: any[]) => {
+    clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => func(...args), delay);
+  };
+};
 
 const CollaborativeEditor: React.FC<{ projectId: string }> = ({ projectId }) => {
   const [files, setFiles] = useState<FileMap>(new Map());
@@ -59,13 +76,114 @@ const CollaborativeEditor: React.FC<{ projectId: string }> = ({ projectId }) => 
   const [parentId, setParentId] = useState<string | null>(null);
   const [newItemType, setNewItemType] = useState<"file" | "folder">("file");
   const [userCount, setUserCount] = useState(1);
-  const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
-  const bindingRef = useRef<MonacoBinding | null>(null);
-  const modelsRef = useRef<Map<string, monaco.editor.ITextModel>>(new Map());
-  const { change, codeChange, setCodeChange } = useChange();
+  const editorRef = useRef<EditorView | null>(null);
+  const editorContainerRef = useRef<HTMLDivElement>(null);
+  const viewsRef = useRef<Map<string, EditorView>>(new Map());
+  const { change, codeChange, setCodeChange, readyYjs, setreadyYjs } = useChange();
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [unreadMessages, setUnreadMessages] = useState(0);
+  const [terminalHeight, setTerminalHeight] = useState(200);
+  const [isDragging, setIsDragging] = useState(false);
+  const terminalRef = useRef<HTMLDivElement>(null);
+  const term = useRef<Terminal | null>(null);
+  const fitAddon = useRef<FitAddon | null>(null);
+  const [editorReady, setEditorReady] = useState(false);
+  const [isViewLoading, setIsViewLoading] = useState(false);
+  const [messages, setMessages] = useState<Array<{
+    id: string;
+    text: string;
+    sender: string;
+    timestamp: Date;
+  }>>([
+    {
+      id: '1',
+      text: 'Welcome to the chat!',
+      sender: 'system',
+      timestamp: new Date()
+    }
+  ]);
+  const [newMessage, setNewMessage] = useState('');
+  const activeFile = useRef<string | null>(null);
 
-  const token = localStorage.getItem("token");
+  const token = localStorage.getItem("username");
 
+  const safeTerminalWrite = (text: string) => {
+    if (term.current) {
+      term.current.writeln(text);
+      term.current.refresh(0, term.current.rows - 1);
+    }
+  };
+
+  const executeJavaScript = useCallback((code: string) => {
+    safeTerminalWrite('\n[Running code...]');
+  
+    const customConsole = {
+      log: (...args: any[]) => safeTerminalWrite(`[LOG] ${args.join(' ')}`),
+      error: (...args: any[]) => safeTerminalWrite(`[ERROR] ${args.join(' ')}`),
+      warn: (...args: any[]) => safeTerminalWrite(`[WARN] ${args.join(' ')}`),
+      info: (...args: any[]) => safeTerminalWrite(`[INFO] ${args.join(' ')}`),
+    };
+  
+    const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+    const func = new AsyncFunction('console', `"use strict";\ntry { ${code} } catch (err) { console.error(err); throw err; }`);
+  
+    try {
+      func(customConsole)
+        .then((res: any) => {
+          if (res !== undefined) {
+            safeTerminalWrite(`[Result] ${JSON.stringify(res, null, 2)}`);
+          }
+        })
+        .catch((err: any) => {
+          safeTerminalWrite(`[Execution Error] ${err instanceof Error ? err.message : String(err)}`);
+        });
+    } catch (error) {
+      safeTerminalWrite(`[Fatal Error] ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }, []);
+  
+  const handleSave = () => {
+    if (!activeFileId) {
+      console.warn("No active file selected for saving.");
+      return;
+    }
+  }
+
+  const runActiveFile = useCallback(() => {
+    if (!activeFileId) {
+      safeTerminalWrite("[Error] No active file selected to run.");
+      return;
+    }
+  
+    const view = viewsRef.current.get(activeFileId);
+    if (!view) {
+      safeTerminalWrite("[Error] Editor not ready.");
+      return;
+    }
+  
+    const code = view.state.doc.toString();
+    if (!code.trim()) {
+      safeTerminalWrite("[Error] The file is empty.");
+      return;
+    }
+  
+    safeTerminalWrite(`\n[Executing ${files.get(activeFileId)?.name || 'file'}...]`);
+    executeJavaScript(code)
+      .catch(() => {}); // Errors are already handled in executeJavaScript
+  }, [activeFileId, executeJavaScript, files]);
+
+  const handleSendMessage = () => {
+    if (newMessage.trim()) {
+      const message = {
+        id: Date.now().toString(),
+        text: newMessage,
+        sender: token || "Anonymous",
+        timestamp: new Date(),
+      };
+      setMessages([...messages, message]);
+      setNewMessage('');
+    }
+  };
 
   const handleAwarenessChange = () => {
     if (yprovider?.awareness) {
@@ -93,27 +211,29 @@ const CollaborativeEditor: React.FC<{ projectId: string }> = ({ projectId }) => 
     return item;
   };
 
+  const debouncedObserver = useRef(
+    debounce(() => {
+      try {
+        const fileMap: FileMap = new Map();
+        
+        if (yrootItems && yfileMap) {
+          yrootItems.forEach((id: string) => {
+            const yitem = yfileMap?.get(id);
+            if (yitem) {
+              fileMap.set(id, convertYItemToJS(yitem));
+            }
+          });
+        }
+        
+        setFiles(fileMap);
+      } catch (error) {
+        console.error("Error observing Yjs changes:", error);
+      }
+    }, 100)
+  ).current;
+
   const observer = () => {
-    try {
-      const fileMap: FileMap = new Map();
-      
-      if (yrootItems && yfileMap) {
-        yrootItems.forEach((id: string) => {
-          const yitem = yfileMap?.get(id);
-          if (yitem) {
-            fileMap.set(id, convertYItemToJS(yitem));
-          }
-        });
-      }
-      
-      setFiles(fileMap);
-      
-      if (activeFileId && yfileMap?.has(activeFileId)) {
-        setTimeout(() => setupEditorBinding(activeFileId), 0);
-      }
-    } catch (error) {
-      console.error("Error observing Yjs changes:", error);
-    }
+    debouncedObserver();
   };
 
   const getChildItems = (parentId: string): FileMap => {
@@ -132,7 +252,6 @@ const CollaborativeEditor: React.FC<{ projectId: string }> = ({ projectId }) => 
     return childItems;
   };
 
-
   const reconnectYjs = () => {
     if (yprovider) {
       yprovider.destroy();
@@ -145,7 +264,7 @@ const CollaborativeEditor: React.FC<{ projectId: string }> = ({ projectId }) => 
     yfileMap = ydoc.getMap("fileMap");
     yrootItems = ydoc.getArray("rootItems");
     
-    yprovider = create_YSocket(ydoc);
+    yprovider = create_YSocket({ydoc, setreadyYjs});
     
     if (yprovider?.awareness) {
       yprovider.awareness.on("change", handleAwarenessChange);
@@ -161,48 +280,119 @@ const CollaborativeEditor: React.FC<{ projectId: string }> = ({ projectId }) => 
     observer();
   };
 
-  const setupEditorBinding = (fileId: string) => {
-    if (!editorRef.current || !fileId || !yfileMap) return;
+  const getLanguageExtension = (filename: string) => {
+    const ext = filename.split('.').pop()?.toLowerCase();
+    const langMap: Record<string, any> = {
+      'js': javascript(),
+      'jsx': javascript({ jsx: true }),
+      'ts': javascript({ typescript: true }),
+      'tsx': javascript({ typescript: true, jsx: true }),
+      'html': html(),
+      'css': css(),
+      'json': json(),
+      'py': python(),
+      'md': markdown(),
+      'java': java(),
+      'cpp': cpp(),
+    };
+    return ext && langMap[ext] ? langMap[ext] : javascript();
+  };
 
-    const yfile = yfileMap.get(fileId);
-    if (!yfile || yfile.get("type") !== "file") return;
-
-    if (bindingRef.current) {
-      bindingRef.current.destroy();
-      bindingRef.current = null;
+  const setupEditorView = (fileId: string) => {
+    if (!editorContainerRef.current || !fileId || !yfileMap || isViewLoading || !editorReady) {
+      return;
     }
 
-    let model: monaco.editor.ITextModel;
-    if (modelsRef.current.has(fileId)) {
-      model = modelsRef.current.get(fileId)!;
-    } else {
+    try {
+      setIsViewLoading(true);
+      const yfile = yfileMap.get(fileId);
+      if (!yfile || yfile.get("type") !== "file") {
+        setIsViewLoading(false);
+        return;
+      }
+
+      if (editorRef.current) {
+        editorRef.current.destroy();
+        editorRef.current = null;
+      }
+
+      if (editorContainerRef.current) {
+        editorContainerRef.current.innerHTML = '';
+      }
+
       const ytext = yfile.get("content") as Y.Text;
-      if (!ytext) return;
-      
-      const modelUri = monaco.Uri.parse(`file:///${fileId}/${yfile.get("name")}`);
-      model = monaco.editor.createModel(
-        ytext.toString(),
-        getLanguageFromFilename(yfile.get("name")),
-        modelUri
-      );
-      modelsRef.current.set(fileId, model);
-    }
+      if (!ytext) {
+        setIsViewLoading(false);
+        return;
+      }
 
-    editorRef.current.setModel(model);
-    const ytext = yfile.get("content") as Y.Text;
-    
-    if (yprovider) {
-      bindingRef.current = new MonacoBinding(
-        ytext,
-        model,
-        new Set([editorRef.current]),
-        yprovider.awareness
-      );
+      const filename = yfile.get("name");
+      const language = getLanguageExtension(filename);
+
+      if (yprovider?.awareness) {
+        const currentState = yprovider.awareness.getLocalState() || {};
+        yprovider.awareness.setLocalState({
+          ...currentState,
+          editing: fileId
+        });
+      }
+
+      setTimeout(() => {
+        try {
+          const undoManager = new Y.UndoManager(ytext);
+          const yCollabExtension = yCollab(ytext, yprovider?.awareness || null, { undoManager });
+
+          const startState = EditorState.create({
+            doc: ytext.toString(),
+            extensions: [
+              basicSetup,
+              vscodeDark,
+              language,
+              yCollabExtension,
+              EditorState.tabSize.of(2),
+              EditorView.lineWrapping,
+              EditorView.theme({
+                "&": {
+                  height: "100%",
+                  fontSize: "14px",
+                  fontFamily: '"Fira Code", "Consolas", "Courier New", monospace',
+                },
+                ".cm-gutters": {
+                  fontSize: "12px",
+                  backgroundColor: "#1e1e1e",
+                  color: "#858585",
+                  border: "none",
+                  fontFamily: "monospace",
+                }
+              })
+            ],
+          });
+
+          const view = new EditorView({
+            state: startState,
+            parent: editorContainerRef.current as HTMLElement
+          });
+
+          editorRef.current = view;
+          viewsRef.current.set(fileId, view);
+          activeFile.current = fileId;
+
+          setIsViewLoading(false);
+        } catch (error) {
+          console.error('View creation failed:', error);
+          setIsViewLoading(false);
+        }
+      }, 50);
+    } catch (error) {
+      console.error('Editor setup error:', error);
+      setIsViewLoading(false);
     }
   };
 
   const handleAddItem = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && newItemName.trim() && yfileMap && yrootItems) {
+      e.preventDefault();
+      
       const newId = uuidv4();
       const yitem = new Y.Map();
       
@@ -214,14 +404,6 @@ const CollaborativeEditor: React.FC<{ projectId: string }> = ({ projectId }) => 
       if (newItemType === "file") {
         const ytext = new Y.Text();
         yitem.set("content", ytext);
-        
-        const modelUri = monaco.Uri.parse(`file:///${newId}/${newItemName.trim()}`);
-        const model = monaco.editor.createModel(
-          ytext.toString(),
-          getLanguageFromFilename(newItemName.trim()),
-          modelUri
-        );
-        modelsRef.current.set(newId, model);
       } else {
         yitem.set("children", new Y.Array());
         yitem.set("isOpen", true);
@@ -243,7 +425,13 @@ const CollaborativeEditor: React.FC<{ projectId: string }> = ({ projectId }) => 
       setParentId(null);
       
       if (newItemType === "file") {
-        setActiveFileId(newId);
+        setTimeout(() => {
+          if (editorRef.current) {
+            editorRef.current.destroy();
+            editorRef.current = null;
+          }
+          setTimeout(() => setActiveFileId(newId), 50);
+        }, 50);
       }
     }
 
@@ -254,24 +442,6 @@ const CollaborativeEditor: React.FC<{ projectId: string }> = ({ projectId }) => 
     }
   };
 
-  const getLanguageFromFilename = (filename: string): string | undefined => {
-    const ext = filename.split('.').pop()?.toLowerCase();
-    const langMap: Record<string, string> = {
-      'js': 'javascript',
-      'jsx': 'javascript',
-      'ts': 'typescript',
-      'tsx': 'typescript',
-      'html': 'html',
-      'css': 'css',
-      'json': 'json',
-      'py': 'python',
-      'md': 'markdown',
-      'java': 'java',
-      'cpp': 'cpp',
-    };
-    return ext ? langMap[ext] : undefined;
-  };
-
   const toggleFolder = (folderId: string) => {
     const yfolder = yfileMap?.get(folderId);
     if (yfolder) {
@@ -280,6 +450,22 @@ const CollaborativeEditor: React.FC<{ projectId: string }> = ({ projectId }) => 
   };
 
   const deleteItem = (itemId: string) => {
+    if (activeFileId === itemId) {
+      if (editorRef.current) {
+        editorRef.current.destroy();
+        editorRef.current = null;
+      }
+      
+      const view = viewsRef.current.get(itemId);
+      if (view) {
+        view.destroy();
+        viewsRef.current.delete(itemId);
+      }
+      
+      setActiveFileId(null);
+      activeFile.current = null;
+    }
+    
     const yitem = yfileMap?.get(itemId);
     if (!yitem) return;
 
@@ -302,82 +488,65 @@ const CollaborativeEditor: React.FC<{ projectId: string }> = ({ projectId }) => 
     }
 
     if (yitem.get("type") === "folder" && yitem.get("children")) {
-      yitem.get("children").toArray().forEach((childId: string) => {
+      const childrenToDelete = [...yitem.get("children").toArray()];
+      childrenToDelete.forEach((childId: string) => {
         deleteItem(childId);
       });
     }
 
     yfileMap?.delete(itemId);
+  };
+
+  const handleDragStart = (e: React.MouseEvent) => {
+    setIsDragging(true);
+    document.body.style.cursor = 'row-resize';
+    document.addEventListener('mousemove', handleDrag);
+    document.addEventListener('mouseup', handleDragEnd);
+    e.preventDefault();
+  };
+  
+  const handleDrag = (e: MouseEvent) => {
+    if (!isDragging) return;
+    const editorContainer = document.querySelector('.editor-container');
+    if (editorContainer) {
+      const containerRect = editorContainer.getBoundingClientRect();
+      const newHeight = Math.max(100, Math.min(containerRect.height - e.clientY + containerRect.top, containerRect.height - 100));
+      setTerminalHeight(newHeight);
+      
+      if (fitAddon.current) {
+        setTimeout(() => fitAddon.current?.fit(), 0);
+      }
+    }
+  };
+  
+  const handleDragEnd = () => {
+    setIsDragging(false);
+    document.body.style.cursor = '';
+    document.removeEventListener('mousemove', handleDrag);
+    document.removeEventListener('mouseup', handleDragEnd);
     
-    if (modelsRef.current.has(itemId)) {
-      modelsRef.current.get(itemId)?.dispose();
-      modelsRef.current.delete(itemId);
+    if (fitAddon.current) {
+      setTimeout(() => fitAddon.current?.fit(), 0);
     }
-
-    if (activeFileId === itemId) {
-      if (bindingRef.current) {
-        bindingRef.current.destroy();
-        bindingRef.current = null;
-      }
-      setActiveFileId(null);
+    
+    if (editorRef.current) {
+      editorRef.current.requestMeasure();
     }
   };
 
-  const handleEditorMount = (editor: monaco.editor.IStandaloneCodeEditor) => {
-    editorRef.current = editor;
-    if (activeFileId) {
-      setupEditorBinding(activeFileId);
-    }
-  };
+  const renderToolbar = () => (
+    <div className="editor-toolbar bg-[#252526] p-2 border-b border-[#1C1C1C] flex items-center">
+     
+      <button 
+      onClick={runActiveFile}
+      className="px-3 py-1 bg-[#388A34] text-white rounded text-sm hover:bg-[#4CAF50] flex items-center gap-1"
+      title="Run current file"
+    >
+      <Play className="w-4 h-4" /> Run
+    </button>
 
-  useEffect(() => {
-    ydoc = new Y.Doc();
-    reconnectYjs();
-
-    return () => {
-      if (yfileMap) yfileMap.unobserveDeep(observer);
-      if (yrootItems) yrootItems.unobserve(observer);
-      
-      if (yprovider?.awareness) {
-        yprovider.awareness.off("change", handleAwarenessChange);
-        yprovider.awareness.setLocalState(null);
-        yprovider.destroy();
-      }
-      
-      modelsRef.current.forEach((model) => model.dispose());
-      modelsRef.current.clear();
-      
-      if (bindingRef.current) {
-        bindingRef.current.destroy();
-        bindingRef.current = null;
-      }
-      
-      if (ydoc) {
-        ydoc.destroy();
-        ydoc = null;
-      }
-    };
-  }, [change]);
-
-  useEffect(() => {
-    if (activeFileId) {
-      setupEditorBinding(activeFileId);
-    }
-    return () => {
-      if (bindingRef.current) {
-        bindingRef.current.destroy();
-        bindingRef.current = null;
-      }
-    };
-  }, [activeFileId]);
-
-  useEffect(() => {
-    if (codeChange) {
-      performDocumentReset({ydoc,yfileMap,yrootItems,yprovider,modelsRef,setActiveFileId});  
-      observer();
-      setCodeChange(false);
-    }
-  }, [codeChange, setCodeChange]);
+    </div>
+  );
 
   const renderFileTree = (items: FileMap, depth = 0) => {
     return Array.from(items.entries()).map(([id, item]) => {
@@ -479,7 +648,11 @@ const CollaborativeEditor: React.FC<{ projectId: string }> = ({ projectId }) => 
               activeFileId === id ? "bg-[#37373D]" : ""
             }`}
             style={{ paddingLeft }}
-            onClick={() => setActiveFileId(id)}
+            onClick={() => {
+              if (activeFileId !== id) {
+                setActiveFileId(id);
+              }
+            }}
           >
             <File
               className={`w-[18px] h-[18px] ${
@@ -515,6 +688,156 @@ const CollaborativeEditor: React.FC<{ projectId: string }> = ({ projectId }) => 
       }
     });
   };
+
+  useEffect(() => {
+    setEditorReady(false);
+    setIsViewLoading(false);
+    
+    if (editorRef.current) {
+      editorRef.current.destroy();
+      editorRef.current = null;
+    }
+    
+    viewsRef.current.forEach((view) => {
+      view.destroy();
+    });
+    viewsRef.current.clear();
+    
+    ydoc = new Y.Doc();
+    reconnectYjs();
+    
+    setEditorReady(true);
+
+    return () => {
+      if (yfileMap) yfileMap.unobserveDeep(observer);
+      if (yrootItems) yrootItems.unobserve(observer);
+      
+      if (yprovider?.awareness) {
+        yprovider.awareness.off("change", handleAwarenessChange);
+        yprovider.awareness.setLocalState(null);
+        yprovider.destroy();
+      }
+      
+      viewsRef.current.forEach((view) => {
+        view.destroy();
+      });
+      viewsRef.current.clear();
+      
+      if (editorRef.current) {
+        editorRef.current.destroy();
+        editorRef.current = null;
+      }
+      
+      if (ydoc) {
+        try {
+          ydoc.destroy();
+        } catch (e) {
+          console.warn('Ydoc cleanup error:', e);
+        }
+        ydoc = null;
+      }
+    };
+  }, [change]);
+
+  useEffect(() => {
+    if (activeFileId && editorReady && !isViewLoading) {
+      if (editorRef.current) {
+        editorRef.current.destroy();
+        editorRef.current = null;
+      }
+      
+      setTimeout(() => {
+        setupEditorView(activeFileId);
+      }, 50);
+    }
+  }, [activeFileId, editorReady]);
+
+  useEffect(() => {
+    if (terminalRef.current && !term.current) {
+      term.current = new Terminal({
+        cursorBlink: true,
+        theme: {
+          background: '#1E1E1E',
+          foreground: '#CCCCCC',
+          cursor: '#FFFFFF',
+          selection: '#264F78',
+        },
+        fontFamily: '"Cascadia Code", Menlo, monospace',
+        fontSize: 14,
+        scrollback: 1000,
+        convertEol: true,
+        allowTransparency: true,
+      });
+  
+      fitAddon.current = new FitAddon();
+      term.current.loadAddon(fitAddon.current);
+  
+      term.current.open(terminalRef.current);
+  
+      setTimeout(() => {
+        fitAddon.current?.fit();
+      }, 100);
+  
+      term.current.writeln('$ '); // initial line
+    }
+  }, []);
+
+  useEffect(() => {
+    if (fitAddon.current) {
+      setTimeout(() => fitAddon.current?.fit(), 0);
+    }
+    
+    if (editorRef.current) {
+      setTimeout(() => editorRef.current.requestMeasure(), 0);
+    }
+  }, [terminalHeight]);
+
+  useEffect(() => {
+    if (codeChange) {
+      if (editorRef.current) {
+        editorRef.current.destroy();
+        editorRef.current = null;
+      }
+
+      viewsRef.current.forEach((view) => {
+        view.destroy();
+      });
+      viewsRef.current.clear();
+      
+      setTimeout(() => {
+        performDocumentReset({
+          ydoc, 
+          yfileMap, 
+          yrootItems, 
+          yprovider, 
+          modelsRef: { current: new Map() },
+          setActiveFileId
+        });  
+        observer();
+        setCodeChange(false);
+      }, 50);
+    }
+  }, [codeChange, setCodeChange]);
+
+  useEffect(() => {
+    if (!isChatOpen && messages.length > 1) {
+      setUnreadMessages(prev => prev + 1);
+    }
+  }, [messages, isChatOpen]);
+
+  useEffect(() => {
+    if (isDragging) {
+      window.addEventListener("mousemove", handleDrag);
+      window.addEventListener("mouseup", handleDragEnd);
+    } else {
+      window.removeEventListener("mousemove", handleDrag);
+      window.removeEventListener("mouseup", handleDragEnd);
+    }
+    return () => {
+      window.removeEventListener("mousemove", handleDrag);
+      window.removeEventListener("mouseup", handleDragEnd);
+    };
+  }, [isDragging]);
 
   return (
     <div className="flex h-screen w-full bg-[#1E1E1E]">
@@ -576,28 +899,84 @@ const CollaborativeEditor: React.FC<{ projectId: string }> = ({ projectId }) => 
         </div>
       </div>
 
-      <div className="flex-1 flex flex-col">
-        {activeFileId ? (
-          <Editor
-            height="100%"
-            language={getLanguageFromFilename(
-              yfileMap?.get(activeFileId)?.get("name") || ""
-            )}
-            theme="vs-dark"
-            onMount={handleEditorMount}
-            options={{
-              fontSize: 14,
-              minimap: { enabled: true },
-              scrollBeyondLastLine: false,
-              automaticLayout: true
-            }}
-          />
-        ) : (
-          <div className="h-full flex items-center justify-center text-[#BBBBBB]">
-            Select a file to start editing
+      <div className="flex-1 flex flex-col editor-container">
+        {renderToolbar()}
+        
+        <div style={{ height: `calc(100% - ${terminalHeight}px - 40px)`, overflow: 'hidden' }}>
+          {activeFileId ? (
+            <div 
+              ref={editorContainerRef} 
+              className="h-full w-full" 
+              style={{ overflow: 'hidden' }}
+            >
+              {isViewLoading && <div className="p-4 text-[#BBBBBB]">Loading editor...</div>}
+            </div>
+          ) : (
+            <div className="h-full flex items-center justify-center text-[#BBBBBB]">
+              Select a file to start editing
+            </div>
+          )}
+        </div>
+
+        <div 
+          className="cursor-row-resize bg-[#1E1E1E] border-t border-[#333333] flex items-center justify-center h-2"
+          onMouseDown={handleDragStart}
+        >
+          <div className="w-8 h-1 bg-[#555555] rounded-full" />
+        </div>
+
+        <div className="bg-[#1E1E1E] h-full flex flex-col" style={{ height: terminalHeight - 8 }}>
+          <div className="flex items-center px-3 py-1 border-b border-[#333333] bg-[#252526] text-[#BBBBBB]">
+            <span className="text-xs font-medium">TERMINAL</span>
+
+            <div className="ml-auto flex items-center">
+              {!isChatOpen && (
+                <button
+                  onClick={() => {
+                    setIsChatOpen(true);
+                    setUnreadMessages(0);
+                  }}
+                  className="relative p-1 text-[#BBBBBB] hover:text-white hover:bg-[#2A2D2E] rounded-sm"
+                  title="Open Chat"
+                >
+                  <ChatIcon />
+                  {unreadMessages > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-[#1C6B9C] text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center">
+                      {unreadMessages > 9 ? '9+' : unreadMessages}
+                    </span>
+                  )}
+                </button>
+              )}
+            </div>
           </div>
-        )}
+
+          <div className="flex-1 flex">
+            <div
+              ref={terminalRef}
+              className="flex-1 overflow-hidden"
+              style={{ minHeight: "200px", backgroundColor: "#1E1E1E" }}
+            />
+          </div>
+        </div>
       </div>
+
+      <AnimatePresence>
+        {isChatOpen && (
+          <motion.div
+            initial={{ x: 400, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: 400, opacity: 0 }}
+            transition={{ type: "spring", stiffness: 120, damping: 20 }}
+            className="fixed top-0 right-0 h-full w-80 z-[300] bg-[#1e1e1ee6] backdrop-blur-lg shadow-2xl rounded-l-2xl overflow-hidden border-l border-white/10"
+          >
+            <ChatPanel
+              isOpen={isChatOpen}
+              onClose={() => setIsChatOpen(false)}
+              currentUser={token || "Anonymous"}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

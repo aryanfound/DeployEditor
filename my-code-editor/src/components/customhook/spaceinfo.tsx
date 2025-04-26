@@ -21,6 +21,8 @@ interface ChangeContextType {
   codeChange: boolean;
   setCodeChange: (value: boolean) => void;
   socketRef: React.RefObject<WebSocket | null>;
+  readyYjs:boolean;
+  setreadyYjs:(value:boolean)=>void;
 }
 
 // Create the context
@@ -33,6 +35,7 @@ export function ChangeProvider({ children }: { children: ReactNode }) {
   const [currCodeSpaceId, setCurrCodeSpaceId] = useState<string>("");
   const [currspacefolder, setCurrspacefolder] = useState<string[]>([]);
   const [codeChange, setCodeChange] = useState<boolean>(false);
+  const [readyYjs,setreadyYjs]=useState<boolean>(false)
 
   // Initialize socketRef
   const socketRef = useRef<WebSocket | null>(socket);
@@ -51,6 +54,7 @@ export function ChangeProvider({ children }: { children: ReactNode }) {
         codeChange,
         setCodeChange,
         socketRef,
+        readyYjs,setreadyYjs
       }}
     >
       {children}
