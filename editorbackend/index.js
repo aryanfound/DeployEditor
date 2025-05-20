@@ -68,6 +68,8 @@ app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
 app.use(cookieParser());
 app.get("/getusers", getUser);
+const getConnection = require('./functions/getConnection');
+app.get('/getConnection', getConnection);
 app.use('/', authMiddleware);
 app.use("/auth", authRouter);
 app.use("/space", codespaceRouter);
