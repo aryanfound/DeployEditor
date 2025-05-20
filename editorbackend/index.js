@@ -10,6 +10,7 @@ const getUser = require("./functions/getUser");
 const { authMiddleware } = require("./routes/authmiddleware");
 const codespaceRouter = require("./routes/codeSpaceRouter");
 const updateFile=require('./socket/updateFile')
+require('./socketIndex');
 
 const Rooms=new Map()
 const connectionMap=new Map()
@@ -18,6 +19,11 @@ require("dotenv").config();
 
 const app = express();
 const server = http.createServer(app);
+const path = require('path');
+app.use(express.static(path.join(__dirname, 'public')));
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 const io = new Server(server, {
   cors: {
     origin: ["http://localhost:5173", "http://172.16.0.2:3003", "http://10.0.3.114:3003"],
@@ -27,6 +33,7 @@ const io = new Server(server, {
 
 const PORT = 5001;
 const MONGO_URL = process.env.MONGO_URL;
+
 const JWT_SECRET = process.env.JWT_SECRET;
 
 if (!JWT_SECRET) {
