@@ -71,7 +71,7 @@ app.get("/getusers", getUser);
 app.use('/', authMiddleware);
 app.use("/auth", authRouter);
 app.use("/space", codespaceRouter);
-app.use('/getConnection',(req,res)=>{getConnection})
+
 const userFiles = {}; 
 
 const authenticateSocket = (socket, next) => {
